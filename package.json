@@ -8,12 +8,13 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node --test pruebas/calculos.test.ts"
+    "test": "node --test pruebas/calculos.test.ts pruebas/nube.test.ts"
   },
   "dependencies": {
     "@fontsource-variable/lexend": "^5.3.0",
     "@fontsource-variable/source-sans-3": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
+    "firebase": "^12.19.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.48.0",

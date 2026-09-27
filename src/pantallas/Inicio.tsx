@@ -1,4 +1,4 @@
-import { CalendarRange, Factory, FileText, Plus, Ruler, Settings } from 'lucide-react'
+import { CalendarRange, Factory, FileText, History, Plus, Ruler, Settings } from 'lucide-react'
 import { useEffect } from 'react'
 import { inicioDeSemana, listarSemanas, resumirSemana, type ResumenSemana } from '../calculos.ts'
 import { useDatos } from '../datos.tsx'
@@ -7,6 +7,7 @@ import { ir } from '../navegacion.ts'
 import type { TipoTrabajo } from '../tipos.ts'
 import { nombreDelTrabajo, TIPOS } from '../tiposDeTrabajo.ts'
 import { Boton, BotonTexto, FilaEnlace, Tarjeta } from '../ui.tsx'
+import { EstadoGuardado } from './EstadoGuardado.tsx'
 
 function ComoSeUsa({ abierto }: { abierto: boolean }) {
   return (
@@ -61,7 +62,7 @@ function SemanaAbierta({ semana, esEsta }: { semana: ResumenSemana; esEsta: bool
 }
 
 export function Inicio() {
-  const { trabajos, valores, crearTrabajo, limpiarVacios } = useDatos()
+  const { trabajos, valores, listo, crearTrabajo, limpiarVacios } = useDatos()
 
   // Si abrió un trabajo nuevo y volvió sin cargar nada, no lo dejamos en la lista.
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- solo al entrar a la pantalla
@@ -79,6 +80,9 @@ export function Inicio() {
           <header>
             <p className="text-base text-texto-suave">{fechaLarga(new Date())}</p>
             <h1 className="text-2xl font-bold sm:text-3xl">Mis estaciones</h1>
+            <div className="mt-1">
+              <EstadoGuardado />
+            </div>
           </header>
           <Boton icono={Plus} onClick={() => nuevo('estacion')}>
             Nueva estación
@@ -94,7 +98,9 @@ export function Inicio() {
         </div>
 
         <div className="flex flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1">
-          {ultima ? (
+          {!listo ? (
+            <p className="rounded-2xl border border-borde bg-superficie p-5 text-base text-texto-suave">Cargando tus datos…</p>
+          ) : ultima ? (
             <SemanaAbierta semana={ultima} esEsta={ultima.inicio === estaSemana} />
           ) : (
             <p className="rounded-2xl border-2 border-dashed border-campo p-5 text-base text-texto-suave">
@@ -105,7 +111,7 @@ export function Inicio() {
           {anteriores.length > 0 && (
             <Tarjeta titulo="Semanas anteriores" icono={CalendarRange}>
               <div className="-mx-4 -mb-4 border-t border-borde">
-                {anteriores.map((semana) => (
+                {anteriores.slice(0, 6).map((semana) => (
                   <FilaEnlace
                     key={semana.inicio}
                     titulo={`Semana ${rangoDeFechas(semana.inicio, semana.fin)}`}
@@ -114,16 +120,26 @@ export function Inicio() {
                     onClick={() => ir(`/semana/${semana.inicio}`)}
                   />
                 ))}
+                <div className="border-t border-borde px-4 py-1">
+                  <BotonTexto icono={History} onClick={() => ir('/historial')}>
+                    Ver todo el historial
+                  </BotonTexto>
+                </div>
               </div>
             </Tarjeta>
           )}
         </div>
 
         <div className="flex flex-col gap-4 lg:col-start-1 lg:row-start-2">
-          <ComoSeUsa abierto={!ultima} />
-          <BotonTexto icono={Settings} onClick={() => ir('/valores')}>
-            Valores y precios
-          </BotonTexto>
+          <ComoSeUsa abierto={listo && !ultima} />
+          <div className="flex flex-col">
+            <BotonTexto icono={History} onClick={() => ir('/historial')}>
+              Historial y totales por mes
+            </BotonTexto>
+            <BotonTexto icono={Settings} onClick={() => ir('/valores')}>
+              Valores y precios
+            </BotonTexto>
+          </div>
         </div>
       </div>
     </main>

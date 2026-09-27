@@ -18,7 +18,7 @@ const puedeCompartir = (() => {
 })()
 
 export function PantallaSemana({ inicio }: { inicio: string }) {
-  const { trabajos, valores, actualizarValoresDeSemana } = useDatos()
+  const { trabajos, valores, listo, actualizarValoresDeSemana } = useDatos()
   const [generando, setGenerando] = useState<TipoPlanilla | null>(null)
   const semana = resumirSemana(inicio, trabajos, valores.iva)
   const cliente = nombreCliente(valores)
@@ -27,7 +27,7 @@ export function PantallaSemana({ inicio }: { inicio: string }) {
   if (semana.cobros.length === 0) {
     return (
       <Pantalla titulo={titulo} volver>
-        <p className="text-base">No hay nada cargado en esta semana.</p>
+        <p className="text-base">{listo ? 'No hay nada cargado en esta semana.' : 'Cargando…'}</p>
       </Pantalla>
     )
   }

@@ -1,0 +1,15 @@
+rules_version = '2';
+
+// Sin usuarios ni contraseñas: los datos se guardan bajo una clave larga que viaja en el link.
+// Quien no sabe la clave no puede leer, listar ni escribir nada.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /cuentas/{clave} {
+      allow get, create, update: if clave.size() >= 32;
+
+      match /{coleccion}/{id} {
+        allow read, write: if clave.size() >= 32 && coleccion in ['trabajos', 'papelera'];
+      }
+    }
+  }
+}

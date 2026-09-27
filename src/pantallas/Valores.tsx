@@ -4,6 +4,7 @@ import { nuevoId, plata } from '../formato.ts'
 import type { Empleado } from '../tipos.ts'
 import { nombreCliente } from '../tiposDeTrabajo.ts'
 import { Aviso, Boton, BotonIcono, CampoNumero, CampoPlata, CampoTexto, Pantalla, Tarjeta } from '../ui.tsx'
+import { CopiasYAcceso } from './Copias.tsx'
 
 const valorHora = (valorDia: number, horasDelDia: number) =>
   valorDia ? `Hora ${plata(valorDia / horasDelDia)}` : 'Falta cargar'
@@ -103,6 +104,8 @@ export function PantallaValores() {
           </Boton>
         </Tarjeta>
       </div>
+
+      <CopiasYAcceso />
     </Pantalla>
   )
 }

@@ -300,10 +300,13 @@ export type ResumenSemana = {
 }
 
 export function resumirSemana(inicio: string, todos: Trabajo[], porcentajeIva: number): ResumenSemana {
+  const fin = sumarDias(inicio, 6)
   const trabajos = todos
     .filter((t) => semanaDe(t) === inicio)
     .sort((a, b) => (a.tramos[0]?.fecha ?? '').localeCompare(b.tramos[0]?.fecha ?? '') || a.creada.localeCompare(b.creada))
-  const cobros = trabajos.map((trabajo) => ({ trabajo, resultado: calcularTrabajo(trabajo, todos) }))
+  // Los días partidos solo pueden combinarse con trabajos de la misma semana: así no se recorre todo el historial.
+  const cercanos = todos.filter((t) => trabajos.includes(t) || t.tramos.some((x) => x.fecha >= inicio && x.fecha <= fin))
+  const cobros = trabajos.map((trabajo) => ({ trabajo, resultado: calcularTrabajo(trabajo, cercanos) }))
   const sumarCobros = (dato: (r: ResultadoTrabajo) => number) => cobros.reduce((s, c) => s + dato(c.resultado), 0)
 
   const subtotal = sumarCobros((r) => r.total)
@@ -312,7 +315,7 @@ export function resumirSemana(inicio: string, todos: Trabajo[], porcentajeIva: n
   // A los chicos se les paga por semana: se suman las horas de toda la semana y recién ahí se hace la cuenta.
   const pagos = new Map<string, PagoEmpleado>()
   for (const { trabajo, resultado: cobro } of cobros) {
-    const pago = calcularTrabajo(trabajo, todos, REGLA_PAGO)
+    const pago = calcularTrabajo(trabajo, cercanos, REGLA_PAGO)
     for (const lineaPago of pago.empleados) {
       const lineaCobro = cobro.empleados.find((l) => l.empleadoId === lineaPago.empleadoId)!
       const valorDia = trabajo.valores.empleados.find((e) => e.id === lineaPago.empleadoId)?.diaPago ?? 0
@@ -372,7 +375,7 @@ export function resumirSemana(inicio: string, todos: Trabajo[], porcentajeIva: n
 
   return {
     inicio,
-    fin: sumarDias(inicio, 6),
+    fin,
     cobros,
     subtotal,
     porcentajeIva,

@@ -5,6 +5,7 @@ import { horas, hoy, nombreDia, nuevoId, numero, plata, sumarDias } from '../for
 import { ir, volver } from '../navegacion.ts'
 import type { Descuento, Trabajo, Tramo } from '../tipos.ts'
 import { nombreCliente, nombreDelTrabajo, TIPOS } from '../tiposDeTrabajo.ts'
+import { EstadoGuardado } from './EstadoGuardado.tsx'
 import {
   Aviso,
   Boton,
@@ -193,8 +194,16 @@ function Resultado({
 }
 
 export function PantallaTrabajo({ id }: { id: string }) {
-  const { trabajos, valores, guardarTrabajo, borrarTrabajo } = useDatos()
+  const { trabajos, valores, listo, guardarTrabajo, borrarTrabajo } = useDatos()
   const trabajo = trabajos.find((t) => t.id === id)
+
+  if (!trabajo && !listo) {
+    return (
+      <Pantalla titulo="Cargando…" volver>
+        <p className="text-base text-texto-suave">Trayendo los datos de la nube.</p>
+      </Pantalla>
+    )
+  }
 
   if (!trabajo) {
     return (
@@ -242,7 +251,8 @@ export function PantallaTrabajo({ id }: { id: string }) {
       : []
 
   const borrar = () => {
-    if (!confirm(`¿Borrar “${nombreDelTrabajo(trabajo)}”? No se puede deshacer.`)) return
+    const aviso = `¿Borrar “${nombreDelTrabajo(trabajo)}”? Si te equivocás, lo recuperás en Valores y precios → Trabajos borrados.`
+    if (!confirm(aviso)) return
     borrarTrabajo(trabajo.id)
     ir('/')
   }
@@ -346,7 +356,9 @@ export function PantallaTrabajo({ id }: { id: string }) {
           <Boton icono={Check} onClick={volver}>
             Listo
           </Boton>
-          <p className="-mt-2 text-center text-sm text-texto-suave">Todo se guarda solo.</p>
+          <div className="-mt-2 flex justify-center">
+            <EstadoGuardado />
+          </div>
           <div className="flex justify-center">
             <BotonTexto icono={Trash2} peligro onClick={borrar}>
               Borrar este trabajo
