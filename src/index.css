@@ -1,0 +1,60 @@
+@import "tailwindcss";
+@import "@fontsource-variable/lexend";
+@import "@fontsource-variable/source-sans-3";
+
+/* Sistema de diseño "Accesible" (ui-ux-pro-max): alto contraste, letra grande,
+   verde azulado para acciones y naranja para destacar la ganancia.
+   Todos los pares texto/fondo cumplen al menos 4,5:1. */
+@theme {
+  --font-sans: "Source Sans 3 Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-titulo: "Lexend Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-fondo: #f0fdfa;
+  --color-superficie: #ffffff;
+  --color-texto: #134e4a;
+  --color-texto-suave: #3f5f5c;
+  --color-borde: #c9e4df;
+  /* Bordes de campos: contraste 3:1 con el fondo para que se vean bien. */
+  --color-campo: #5e8c86;
+
+  --color-primario: #0f766e;
+  --color-primario-fuerte: #115e59;
+  --color-primario-suave: #ccfbf1;
+
+  --color-acento: #c2410c;
+  --color-aviso: #fff7ed;
+  --color-aviso-borde: #fdba74;
+  --color-aviso-texto: #9a3412;
+
+  --color-peligro: #b91c1c;
+  --color-peligro-suave: #fef2f2;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply bg-fondo text-texto antialiased;
+  touch-action: manipulation;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-titulo);
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-primario);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
