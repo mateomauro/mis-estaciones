@@ -13,25 +13,34 @@ export function guardarClave(clave: string) {
   try {
     localStorage.setItem(CLAVE, clave)
   } catch {
-    // Sin almacenamiento: habrá que abrir el link cada vez.
+    // Sin almacenamiento: igual queda en la dirección.
   }
+  ponerEnLaDireccion(clave)
 }
 
-/** La clave de este aparato. Si vino en el link se guarda y se saca de la dirección, así no queda a la vista. */
-export function leerClave(): string | null {
+/**
+ * La clave queda siempre en la dirección: así, si se guarda la página, se comparte o se agrega
+ * el ícono al inicio del celular, lo guardado ya la lleva y nunca vuelve a pedirla.
+ */
+function ponerEnLaDireccion(clave: string) {
   const url = new URL(window.location.href)
-  const delLink = extraerClave(url.searchParams.get('clave') ?? '')
-  if (delLink) {
-    guardarClave(delLink)
-    url.searchParams.delete('clave')
-    window.history.replaceState(null, '', url.pathname + url.search + url.hash)
-    return delLink
-  }
+  if (url.searchParams.get('clave') === clave) return
+  url.searchParams.set('clave', clave)
+  window.history.replaceState(null, '', url.pathname + url.search + url.hash)
+}
+
+/** La clave de este aparato: la del link o la que ya había guardada. */
+export function leerClave(): string | null {
+  const delLink = extraerClave(new URL(window.location.href).searchParams.get('clave') ?? '')
+  let guardada: string | null = null
   try {
-    return localStorage.getItem(CLAVE)
+    guardada = localStorage.getItem(CLAVE)
   } catch {
-    return null
+    // Sin almacenamiento: se usa la del link.
   }
+  const clave = delLink ?? guardada
+  if (clave) guardarClave(clave)
+  return clave
 }
 
 export const linkConClave = (clave: string) => `${window.location.origin}/?clave=${clave}`
