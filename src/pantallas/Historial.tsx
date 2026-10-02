@@ -23,7 +23,7 @@ function FilasDeTotales({ totales, cliente }: { totales: Totales; cliente: strin
     <>
       <Fila etiqueta={`Cobraste a ${cliente} (sin IVA)`} valor={plata(totales.subtotal)} />
       <Fila etiqueta="Con IVA" valor={plata(totales.totalConIva)} />
-      <Fila etiqueta="Pagaste a los chicos" valor={`− ${plata(totales.totalPagos)}`} />
+      <Fila etiqueta="Pago a empleados" valor={`− ${plata(totales.totalPagos)}`} />
     </>
   )
 }

@@ -167,28 +167,6 @@ export function crearPlanillaCliente(semana: ResumenSemana, { titular, cliente }
   const d = new Documento()
   d.encabezado('Liquidación semanal', semana, titular, `Para: ${cliente}`)
 
-  // Resumen con el total arriba de todo, así se ve apenas se abre.
-  d.titulo('Resumen de la semana')
-  d.y += 3
-  d.tabla({
-    head: [['Trabajo', 'Importe']],
-    body: [
-      ...semana.cobros.map(({ trabajo, resultado }) => [
-        `${nombreDelTrabajo(trabajo)} (${TIPOS[trabajo.tipo].nombre.toLowerCase()})`,
-        pesos(resultado.total),
-      ]),
-      [{ content: 'Subtotal', styles: { fontStyle: 'bold' } }, { content: pesos(semana.subtotal), styles: { fontStyle: 'bold' } }],
-      [`IVA ${semana.porcentajeIva.toLocaleString('es-AR')}%`, pesos(semana.iva)],
-    ],
-    foot: [['Total a cobrar con IVA', pesos(semana.totalConIva)]],
-    footStyles: { fillColor: PRIMARIO, textColor: 255, fontStyle: 'bold', fontSize: 12 },
-    columnStyles: { 1: { cellWidth: 40 } },
-    ...numerosDesde(1),
-  })
-  d.y += 12
-  d.titulo('DETALLE POR TRABAJO', undefined, 11)
-  d.y += 8
-
   for (const { trabajo, resultado } of semana.cobros) {
     d.lugarPara(45)
     d.titulo(nombreDelTrabajo(trabajo), TIPOS[trabajo.tipo].nombre)
@@ -219,6 +197,26 @@ export function crearPlanillaCliente(semana: ResumenSemana, { titular, cliente }
     })
     d.y += 10
   }
+
+  // Al final, el resumen de la semana con el total.
+  d.lugarPara(70)
+  d.titulo('Resumen de la semana')
+  d.y += 3
+  d.tabla({
+    head: [['Trabajo', 'Importe']],
+    body: [
+      ...semana.cobros.map(({ trabajo, resultado }) => [
+        `${nombreDelTrabajo(trabajo)} (${TIPOS[trabajo.tipo].nombre.toLowerCase()})`,
+        pesos(resultado.total),
+      ]),
+      [{ content: 'Subtotal', styles: { fontStyle: 'bold' } }, { content: pesos(semana.subtotal), styles: { fontStyle: 'bold' } }],
+      [`IVA ${semana.porcentajeIva.toLocaleString('es-AR')}%`, pesos(semana.iva)],
+    ],
+    foot: [['Total a cobrar con IVA', pesos(semana.totalConIva)]],
+    footStyles: { fillColor: PRIMARIO, textColor: 255, fontStyle: 'bold', fontSize: 12 },
+    columnStyles: { 1: { cellWidth: 40 } },
+    ...numerosDesde(1),
+  })
   return d.terminar()
 }
 

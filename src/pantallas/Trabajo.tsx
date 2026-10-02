@@ -222,10 +222,10 @@ export function PantallaTrabajo({ id }: { id: string }) {
     cambiar({ tramos: trabajo.tramos.map((t) => (t.id === tramoId ? { ...t, ...cambios } : t)) })
 
   const agregarDia = () => {
-    // El día nuevo arranca con el mismo horario que el último, al día siguiente.
+    // El día nuevo arranca al día siguiente del último, con el horario vacío para cargarlo de cero.
     const ultimo = resultado.dias.at(-1)?.tramo
     const nuevo: Tramo = ultimo
-      ? { ...ultimo, id: nuevoId(), fecha: sumarDias(ultimo.fecha, 1), feriado: false }
+      ? { id: nuevoId(), fecha: sumarDias(ultimo.fecha, 1), desde: '', hasta: '', feriado: false }
       : { id: nuevoId(), fecha: hoy(), desde: '', hasta: '', feriado: false }
     cambiar({ tramos: [...trabajo.tramos, nuevo] })
   }

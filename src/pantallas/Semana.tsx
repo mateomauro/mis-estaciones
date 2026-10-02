@@ -98,7 +98,7 @@ export function PantallaSemana({ inicio }: { inicio: string }) {
 
         <div className="flex flex-col gap-4">
           <Tarjeta
-            titulo="Lo que les pagás a los chicos"
+            titulo="Pago a empleados"
             icono={HandCoins}
             derecha={<span className="text-lg font-bold tabular-nums">{plata(semana.totalPagos)}</span>}
           >
@@ -138,7 +138,7 @@ export function PantallaSemana({ inicio }: { inicio: string }) {
 
           <Tarjeta titulo="Tu ganancia" icono={PiggyBank}>
             <Fila etiqueta="Cobrás (sin IVA)" valor={plata(semana.subtotal)} />
-            <Fila etiqueta="Pagás a los chicos" valor={`− ${plata(semana.totalPagos)}`} />
+            <Fila etiqueta="Pago a empleados" valor={`− ${plata(semana.totalPagos)}`} />
             <Destacado etiqueta="Te queda" monto={semana.ganancia} color="acento" />
             <details className="text-base">
               <summary className="min-h-7 cursor-pointer font-semibold text-primario">¿De dónde sale?</summary>
