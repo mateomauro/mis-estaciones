@@ -295,6 +295,38 @@ export function CampoNumero({
   )
 }
 
+/** Botones para elegir una sola opción entre pocas (por ejemplo "No fui / Todo el día / Un rato"). */
+export function Opciones<T extends string>({
+  etiqueta,
+  opciones,
+  valor,
+  alCambiar,
+}: {
+  etiqueta: string
+  opciones: [T, string][]
+  valor: T
+  alCambiar: (valor: T) => void
+}) {
+  return (
+    <div role="radiogroup" aria-label={etiqueta} className="grid grid-flow-col auto-cols-fr gap-2">
+      {opciones.map(([clave, texto]) => (
+        <button
+          key={clave}
+          type="button"
+          role="radio"
+          aria-checked={valor === clave}
+          onClick={() => alCambiar(clave)}
+          className={`min-h-11 cursor-pointer rounded-lg border-2 px-2 text-base font-semibold transition-colors duration-150 ${
+            valor === clave ? 'border-primario bg-primario text-white' : 'border-campo bg-superficie text-texto'
+          }`}
+        >
+          {texto}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function Casilla({
   marcada,
   alCambiar,

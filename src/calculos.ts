@@ -1,5 +1,5 @@
 import { sumarDias } from './formato.ts'
-import type { Trabajo, Tramo } from './tipos.ts'
+import type { PresenciaMia, Trabajo, Tramo } from './tipos.ts'
 
 /** Reglas que cambian entre lo que se le cobra al cliente (CR) y lo que se le paga a los empleados. */
 export type Regla = {
@@ -42,11 +42,24 @@ export type DiaCalculado = {
   reparto: Reparto
   /** En fábrica: minutos que se agregan para cobrar el día completo. */
   relleno: number
+  /** Minutos que estuvo él ese día en la estación. */
+  minutosMios: number
 }
 
 export type MiParte =
   | { tipo: 'proporcional'; horas: number; empleados: number; horasProporcionales: number; monto: number }
   | { tipo: 'horas'; horas: number; monto: number }
+  /** Fue un rato: sus horas derecho y el proporcional por las horas en que no estuvo. */
+  | {
+      tipo: 'mixto'
+      horasMias: number
+      horasSinMi: number
+      empleados: number
+      horasProporcionales: number
+      montoHoras: number
+      montoProporcional: number
+      monto: number
+    }
   | { tipo: 'nada'; monto: 0 }
 
 export type ResultadoTrabajo = {
@@ -77,6 +90,38 @@ export function minutosDelTramo(t: Tramo): number {
   if (desde === null || hasta === null) return 0
   const dif = hasta - desde
   return dif < 0 ? dif + MINUTOS_DIA : dif
+}
+
+/** Desde y hasta en minutos; si termina pasada la medianoche, el final pasa al día siguiente. */
+function intervalo(desde: string | undefined, hasta: string | undefined): [number, number] | null {
+  const d = aMinutos(desde ?? '')
+  const h = aMinutos(hasta ?? '')
+  if (d === null || h === null) return null
+  return [d, h < d ? h + MINUTOS_DIA : h]
+}
+
+const superposicion = (a: [number, number], b: [number, number]) =>
+  Math.max(0, Math.min(a[1], b[1]) - Math.max(a[0], b[0]))
+
+/** Si él estuvo ese día en la estación. Lo cargado antes sin dato por día sigue la casilla "Fui yo". */
+export function presenciaMia(trabajo: Trabajo, tramo: Tramo): PresenciaMia {
+  if (trabajo.tipo !== 'estacion' || !trabajo.trabajeYo) return 'no'
+  return tramo.yo ?? 'todo'
+}
+
+/** Minutos que estuvo él y cuántos de esos coinciden con el horario de la estación. */
+function minutosMios(trabajo: Trabajo, tramo: Tramo): { mios: number; enComun: number } {
+  const presencia = presenciaMia(trabajo, tramo)
+  const total = minutosDelTramo(tramo)
+  if (presencia === 'todo') return { mios: total, enComun: total }
+  if (presencia === 'no') return { mios: 0, enComun: 0 }
+  const mio = intervalo(tramo.yoDesde, tramo.yoHasta)
+  const estacion = intervalo(tramo.desde, tramo.hasta)
+  if (!mio) return { mios: 0, enComun: 0 }
+  const enComun = estacion
+    ? Math.max(superposicion(mio, estacion), superposicion([mio[0] + MINUTOS_DIA, mio[1] + MINUTOS_DIA], estacion))
+    : 0
+  return { mios: mio[1] - mio[0], enComun: Math.min(enComun, total) }
 }
 
 /** Día de la semana de una fecha AAAA-MM-DD (0 = domingo). */
@@ -177,6 +222,7 @@ export function calcularTrabajo(trabajo: Trabajo, todos: Trabajo[], regla: Regla
     minutos: minutosDelTramo(tramo),
     tipo: tipoDeDia(tramo.fecha, trabajo.tramos.some((t) => t.fecha === tramo.fecha && t.feriado)),
     ...calcularDia(primerEmpleado, tramo),
+    minutosMios: minutosMios(trabajo, tramo).mios,
   }))
 
   const totalMinutos = dias.reduce((suma, d) => suma + d.minutos, 0)
@@ -198,17 +244,45 @@ export function calcularTrabajo(trabajo: Trabajo, todos: Trabajo[], regla: Regla
   const horas = totalMinutos / 60
   const horaMia = trabajo.valores.horaMia
   let miParte: MiParte = { tipo: 'nada', monto: 0 }
-  if (trabajo.tipo === 'medicion' || (trabajo.tipo === 'estacion' && trabajo.trabajeYo)) {
+  if (trabajo.tipo === 'medicion') {
     miParte = { tipo: 'horas', horas, monto: Math.round(horas * horaMia) }
-  } else if (trabajo.tipo === 'estacion' && lineas.length > 0) {
-    // Regla de tres inversa: si hubiera ido él, habrían sido una persona más.
-    const horasProporcionales = (horas * lineas.length) / (lineas.length + 1)
-    miParte = {
-      tipo: 'proporcional',
-      horas,
-      empleados: lineas.length,
-      horasProporcionales,
-      monto: Math.round(horasProporcionales * horaMia),
+  } else if (trabajo.tipo === 'estacion') {
+    // Mientras él está cobra sus horas derecho (sin extras). Mientras no está, la regla de tres
+    // inversa: si hubiera ido, habrían sido una persona más.
+    const empleados = lineas.length
+    let mios = 0
+    let sinMi = 0
+    for (const tramo of ordenados) {
+      const { mios: m, enComun } = minutosMios(trabajo, tramo)
+      mios += m
+      sinMi += minutosDelTramo(tramo) - enComun
+    }
+    const horasMias = mios / 60
+    const horasSinMi = sinMi / 60
+    const horasProporcionales = empleados > 0 ? (horasSinMi * empleados) / (empleados + 1) : 0
+    if (horasMias > 0 && horasProporcionales > 0) {
+      const montoHoras = Math.round(horasMias * horaMia)
+      const montoProporcional = Math.round(horasProporcionales * horaMia)
+      miParte = {
+        tipo: 'mixto',
+        horasMias,
+        horasSinMi,
+        empleados,
+        horasProporcionales,
+        montoHoras,
+        montoProporcional,
+        monto: montoHoras + montoProporcional,
+      }
+    } else if (horasMias > 0) {
+      miParte = { tipo: 'horas', horas: horasMias, monto: Math.round(horasMias * horaMia) }
+    } else if (horasProporcionales > 0) {
+      miParte = {
+        tipo: 'proporcional',
+        horas: horasSinMi,
+        empleados,
+        horasProporcionales,
+        monto: Math.round(horasProporcionales * horaMia),
+      }
     }
   }
 

@@ -1,9 +1,16 @@
 import { CalendarDays, Check, Circle, Plus, RefreshCw, Trash2, Wallet } from 'lucide-react'
-import { calcularTrabajo, diaDeLaSemana, inicioDeSemana, type DiaCalculado, type ResultadoTrabajo } from '../calculos.ts'
+import {
+  calcularTrabajo,
+  diaDeLaSemana,
+  inicioDeSemana,
+  presenciaMia,
+  type DiaCalculado,
+  type ResultadoTrabajo,
+} from '../calculos.ts'
 import { useDatos } from '../datos.tsx'
 import { horas, hoy, nombreDia, nuevoId, numero, plata, sumarDias } from '../formato.ts'
 import { ir, volver } from '../navegacion.ts'
-import type { Descuento, Trabajo, Tramo } from '../tipos.ts'
+import type { Descuento, PresenciaMia, Trabajo, Tramo } from '../tipos.ts'
 import { nombreCliente, nombreDelTrabajo, TIPOS } from '../tiposDeTrabajo.ts'
 import { EstadoGuardado } from './EstadoGuardado.tsx'
 import {
@@ -18,6 +25,7 @@ import {
   Destacado,
   estiloCampo,
   Fila,
+  Opciones,
   Pantalla,
   Tarjeta,
 } from '../ui.tsx'
@@ -37,12 +45,15 @@ function detalleDelDia(dia: DiaCalculado, conExtras: boolean) {
 function FilaDia({
   dia,
   conExtras,
+  presencia,
   otrosTrabajos,
   alCambiar,
   alQuitar,
 }: {
   dia: DiaCalculado
   conExtras: boolean
+  /** Si fue él a la estación: cómo estuvo ese día. Sin valor, no se pregunta. */
+  presencia: PresenciaMia | null
   otrosTrabajos: string[]
   alCambiar: (cambios: Partial<Tramo>) => void
   alQuitar: () => void
@@ -68,6 +79,32 @@ function FilaDia({
         <CampoHora etiqueta="Desde" valor={tramo.desde} alCambiar={(desde) => alCambiar({ desde })} />
         <CampoHora etiqueta="Hasta" valor={tramo.hasta} alCambiar={(hasta) => alCambiar({ hasta })} />
       </div>
+      {presencia && (
+        <div className="flex flex-col gap-2 rounded-lg bg-fondo p-2">
+          <span className="text-sm font-semibold">¿Y vos ese día?</span>
+          <Opciones
+            etiqueta="¿Y vos ese día?"
+            valor={presencia}
+            opciones={[
+              ['no', 'No fui'],
+              ['todo', 'Todo el día'],
+              ['parte', 'Un rato'],
+            ]}
+            alCambiar={(yo) => alCambiar({ yo })}
+          />
+          {presencia === 'parte' && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <CampoHora etiqueta="Llegaste" valor={tramo.yoDesde ?? ''} alCambiar={(yoDesde) => alCambiar({ yoDesde })} />
+                <CampoHora etiqueta="Te fuiste" valor={tramo.yoHasta ?? ''} alCambiar={(yoHasta) => alCambiar({ yoHasta })} />
+              </div>
+              <p className={`text-sm ${dia.minutosMios > 0 ? 'text-texto-suave' : 'text-aviso-texto'}`}>
+                {dia.minutosMios > 0 ? `Estuviste ${horas(dia.minutosMios)} h` : 'Cargá a qué hora llegaste y te fuiste'}
+              </p>
+            </>
+          )}
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <span className={`min-w-0 flex-1 text-base font-semibold ${dia.minutos === 0 ? 'text-aviso-texto' : ''}`}>
           {detalleDelDia(dia, conExtras)}
@@ -130,7 +167,26 @@ function Resultado({
         </div>
       )}
 
-      {miParte.tipo !== 'nada' && (
+      {miParte.tipo === 'mixto' && (
+        <div className="flex flex-col gap-2 border-t border-borde pt-3">
+          <div>
+            <Fila etiqueta={<span className="font-semibold">Tus horas</span>} valor={plata(miParte.montoHoras)} />
+            <p className="text-sm text-texto-suave">
+              {numero(miParte.horasMias)} h que estuviste × {horaMia}
+            </p>
+          </div>
+          <div>
+            <Fila etiqueta={<span className="font-semibold">Tu proporcional</span>} valor={plata(miParte.montoProporcional)} />
+            <p className="text-sm text-texto-suave">
+              {numero(miParte.horasSinMi)} h sin vos × {miParte.empleados} ÷ {miParte.empleados + 1} ={' '}
+              {numero(miParte.horasProporcionales)} h × {horaMia}
+            </p>
+          </div>
+          <Fila etiqueta="Tu parte" valor={plata(miParte.monto)} fuerte />
+        </div>
+      )}
+
+      {(miParte.tipo === 'horas' || miParte.tipo === 'proporcional') && (
         <div className="border-t border-borde pt-3">
           <Fila
             etiqueta={<span className="font-semibold">{miParte.tipo === 'proporcional' ? 'Tu proporcional' : 'Tus horas'}</span>}
@@ -298,7 +354,7 @@ export function PantallaTrabajo({ id }: { id: string }) {
                 </div>
                 {trabajo.tipo === 'estacion' && (
                   <Casilla chica marcada={trabajo.trabajeYo} alCambiar={(trabajeYo) => cambiar({ trabajeYo })}>
-                    Trabajé yo también <span className="text-texto-suave">(cobro mis horas, sin proporcional)</span>
+                    Fui yo también <span className="text-texto-suave">(en cada día marcás si estuviste todo el día o un rato)</span>
                   </Casilla>
                 )}
               </fieldset>
@@ -318,6 +374,7 @@ export function PantallaTrabajo({ id }: { id: string }) {
                 key={dia.tramo.id}
                 dia={dia}
                 conExtras={resultado.empleados.length > 0}
+                presencia={trabajo.tipo === 'estacion' && trabajo.trabajeYo ? presenciaMia(trabajo, dia.tramo) : null}
                 otrosTrabajos={otrosTrabajosDelDia(dia.tramo)}
                 alCambiar={(cambios) => cambiarTramo(dia.tramo.id, cambios)}
                 alQuitar={() => cambiar({ tramos: trabajo.tramos.filter((t) => t.id !== dia.tramo.id) })}

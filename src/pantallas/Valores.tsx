@@ -4,6 +4,7 @@ import { nuevoId, plata } from '../formato.ts'
 import type { Empleado } from '../tipos.ts'
 import { nombreCliente } from '../tiposDeTrabajo.ts'
 import { Aviso, Boton, BotonIcono, CampoNumero, CampoPlata, CampoTexto, Pantalla, Tarjeta } from '../ui.tsx'
+import { Aumento } from './Aumento.tsx'
 import { CopiasYAcceso } from './Copias.tsx'
 
 const valorHora = (valorDia: number, horasDelDia: number) =>
@@ -33,6 +34,8 @@ export function PantallaValores() {
   return (
     <Pantalla titulo="Valores y precios" volver>
       <Aviso>Se guarda solo. Lo que ya cargaste sigue con los valores que tenía; lo nuevo usa estos.</Aviso>
+
+      <Aumento />
 
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[20rem_minmax(0,1fr)] lg:items-start lg:gap-6">
         <Tarjeta titulo="Tus valores" icono={Wallet}>

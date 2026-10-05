@@ -260,3 +260,49 @@ test('La hora se entiende como la escriba', async () => {
   ]
   for (const [texto, esperado] of casos) assert.equal(interpretarHora(texto), esperado, texto)
 })
+
+test('Él fue un rato: sus horas derecho + proporcional por las horas en que no estuvo', () => {
+  // Estación Test: 3 empleados de 8 a 18 (10 h) y él de 10 a 13 (3 h).
+  const e = trabajo({
+    empleadoIds: ['emi', 'nico', 'naza'],
+    trabajeYo: true,
+    tramos: [{ ...tramo('2026-10-05', '08:00', '18:00'), yo: 'parte', yoDesde: '10:00', yoHasta: '13:00' }],
+  })
+  const r = calcularTrabajo(e, [e])
+  assert.equal(r.miParte.tipo, 'mixto')
+  if (r.miParte.tipo !== 'mixto') return
+  assert.equal(r.miParte.horasMias, 3)
+  assert.equal(r.miParte.horasSinMi, 7)
+  assert.equal(r.miParte.horasProporcionales, 5.25)
+  assert.equal(r.miParte.montoHoras, 3 * 33835)
+  assert.equal(r.miParte.montoProporcional, Math.round(5.25 * 33835))
+  assert.equal(r.miParte.monto, 279139)
+  // A los empleados no les cambia nada.
+  assert.equal(horas(r.empleados[0].reparto.simples), 9)
+  assert.equal(horas(r.empleados[0].reparto.al50), 1)
+  assert.equal(r.dias[0].minutosMios, 3 * 60)
+})
+
+test('Él: un día entero, otro no fue y otro un rato fuera del horario de los chicos', () => {
+  const e = trabajo({
+    empleadoIds: ['emi', 'nico', 'naza'],
+    trabajeYo: true,
+    tramos: [
+      { ...tramo('2026-10-05', '08:00', '18:00'), yo: 'todo' },
+      { ...tramo('2026-10-06', '08:00', '18:00'), yo: 'no' },
+      // Llegó antes que los chicos: de 7 a 13 son 6 h suyas, 5 h en común con ellos.
+      { ...tramo('2026-10-07', '08:00', '18:00'), yo: 'parte', yoDesde: '07:00', yoHasta: '13:00' },
+    ],
+  })
+  const r = calcularTrabajo(e, [e])
+  if (r.miParte.tipo !== 'mixto') throw new Error(r.miParte.tipo)
+  assert.equal(r.miParte.horasMias, 10 + 0 + 6)
+  assert.equal(r.miParte.horasSinMi, 0 + 10 + 5)
+})
+
+test('Si marcó que fue pero ningún día estuvo, cobra el proporcional como siempre', () => {
+  const e = trabajo({ trabajeYo: true, tramos: [{ ...tramo('2026-10-05', '08:00', '18:00'), yo: 'no' }] })
+  const r = calcularTrabajo(e, [e])
+  assert.equal(r.miParte.tipo, 'proporcional')
+  assert.equal(r.miParte.monto, Math.round(((10 * 4) / 5) * 33835))
+})

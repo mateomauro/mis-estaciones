@@ -31,7 +31,16 @@ export type Tramo = {
   /** HH:MM. Si es menor que "desde", terminó pasada la medianoche. */
   hasta: string
   feriado: boolean
+  /**
+   * En una estación donde fue él: si ese día no fue, estuvo todo el día o un rato (de yoDesde a yoHasta).
+   * Si no está, cuenta como todo el día (así se cargaba antes).
+   */
+  yo?: PresenciaMia
+  yoDesde?: string
+  yoHasta?: string
 }
+
+export type PresenciaMia = 'no' | 'todo' | 'parte'
 
 export type Descuento = {
   id: string

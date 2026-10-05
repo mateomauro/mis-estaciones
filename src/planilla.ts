@@ -153,6 +153,10 @@ function importesDelTrabajo(trabajo: Trabajo, resultado: ResultadoTrabajo, titul
   // Su parte va sin su valor hora ni la cuenta.
   const { miParte } = resultado
   if (miParte.tipo === 'proporcional') filas.push([`Proporcional ${titular}`, pesos(miParte.monto)])
+  if (miParte.tipo === 'mixto') {
+    filas.push([`Horas ${titular}`, pesos(miParte.montoHoras)])
+    filas.push([`Proporcional ${titular}`, pesos(miParte.montoProporcional)])
+  }
   if (miParte.tipo === 'horas') {
     filas.push([`${trabajo.tipo === 'medicion' ? 'Viaje a medir' : 'Horas'} ${titular}`, pesos(miParte.monto)])
   }
@@ -171,7 +175,7 @@ export function crearPlanillaCliente(semana: ResumenSemana, { titular, cliente }
     d.lugarPara(45)
     d.titulo(nombreDelTrabajo(trabajo), TIPOS[trabajo.tipo].nombre)
     const personal = resultado.empleados.map((l) => l.nombre)
-    if (trabajo.tipo === 'estacion' && trabajo.trabajeYo) personal.push(titular)
+    if (resultado.dias.some((dia) => dia.minutosMios > 0)) personal.push(titular)
     if (personal.length > 0) {
       d.y += 5
       d.nota(`Personal: ${personal.join(', ')}`)
