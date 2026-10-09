@@ -4,7 +4,7 @@ import type { Copia } from './copias.ts'
 import { hoy, nuevoId } from './formato.ts'
 import { db } from './nube/firebase.ts'
 import { Sincronizador, type EstadoNube, type TrabajoBorrado } from './nube/sincronizar.ts'
-import type { TipoTrabajo, Trabajo, Valores } from './tipos.ts'
+import type { Gasto, TipoTrabajo, Trabajo, Valores } from './tipos.ts'
 
 // Donde se guardaba todo antes de la nube. También se usa si la app corre sin nube (en desarrollo).
 const CLAVE_LOCAL = 'mis-estaciones-v1'
@@ -26,7 +26,7 @@ const VALORES_INICIALES: Valores = {
   iva: 21,
 }
 
-const SIN_DATOS: Datos = { valores: VALORES_INICIALES, trabajos: [] }
+const SIN_DATOS: Datos = { valores: VALORES_INICIALES, trabajos: [], gastos: [] }
 
 function leerLocal(): Datos | null {
   try {
@@ -35,7 +35,7 @@ function leerLocal(): Datos | null {
     // La primera versión guardaba "estaciones" sin tipo.
     const datos = JSON.parse(guardado) as Partial<Datos> & { estaciones?: Trabajo[] }
     const trabajos = (datos.trabajos ?? datos.estaciones ?? []).map((t) => ({ ...t, tipo: t.tipo ?? 'estacion' }))
-    return { valores: datos.valores ?? VALORES_INICIALES, trabajos }
+    return { valores: datos.valores ?? VALORES_INICIALES, trabajos, gastos: datos.gastos ?? [] }
   } catch {
     return null
   }
@@ -50,7 +50,7 @@ function guardarLocal(datos: Datos) {
 }
 
 /** Un trabajo recién creado que nunca se completó. */
-const estaVacio = (t: Trabajo) => !t.nombre.trim() && t.tramos.every((tramo) => !tramo.desde && !tramo.hasta)
+export const estaVacio = (t: Trabajo) => !t.nombre.trim() && t.tramos.every((tramo) => !tramo.desde && !tramo.hasta)
 
 /**
  * La primera vez que un aparato se conecta a la nube: si tenía cosas cargadas de antes, ofrece subirlas.
@@ -78,10 +78,15 @@ type ContextoDatos = Datos & {
   /** Ya están los datos (en un aparato nuevo hay que esperar a la nube la primera vez). */
   listo: boolean
   estadoNube: EstadoNube
+  /** No se pudieron leer los gastos de la nube (por ejemplo, si faltan las reglas en Firebase). */
+  fallanGastos: boolean
   clave: string | null
   guardarValores: (valores: Valores) => void
-  crearTrabajo: (tipo: TipoTrabajo) => string
+  /** Crea un trabajo con los valores de hoy. El viaje a medir arranca con el día de hoy; lo demás, sin días. */
+  crearTrabajo: (tipo: TipoTrabajo, datos?: Partial<Trabajo>) => string
   guardarTrabajo: (trabajo: Trabajo) => void
+  /** Cambia un trabajo partiendo de lo último que haya (sirve para deshacer). */
+  actualizarTrabajo: (id: string, cambio: (trabajo: Trabajo) => Trabajo) => void
   /** Lo borra dejando una copia en la papelera. */
   borrarTrabajo: (id: string) => void
   limpiarVacios: () => void
@@ -90,6 +95,9 @@ type ContextoDatos = Datos & {
   cargarCopia: (copia: Copia) => void
   leerPapelera: () => Promise<TrabajoBorrado[]>
   recuperarTrabajo: (borrado: TrabajoBorrado) => void
+  guardarGasto: (gasto: Gasto) => void
+  /** Lo quita y lo devuelve, para poder deshacerlo. */
+  borrarGasto: (id: string) => Gasto | undefined
 }
 
 const Contexto = createContext<ContextoDatos | null>(null)
@@ -99,6 +107,7 @@ export function DatosProvider({ clave, children }: { clave: string | null; child
   const [datos, setDatos] = useState<Datos>(() => (enNube ? SIN_DATOS : (leerLocal() ?? SIN_DATOS)))
   const [listo, setListo] = useState(!enNube)
   const [estadoNube, setEstadoNube] = useState<EstadoNube>(enNube ? 'cargando' : 'solo-local')
+  const [fallanGastos, setFallanGastos] = useState(false)
   // Los cambios se calculan sobre lo último, aunque React todavía no haya vuelto a dibujar.
   const datosRef = useRef(datos)
   const sync = useRef<Sincronizador | null>(null)
@@ -120,7 +129,12 @@ export function DatosProvider({ clave, children }: { clave: string | null; child
         poner({ ...datosRef.current, trabajos })
         if (estaListo) setListo(true)
       },
-      alConectar: (cuentaExiste) => pasarDatosViejos(s, cuentaExiste, datosRef.current.trabajos),
+      alCambiarGastos: (gastos) => {
+        poner({ ...datosRef.current, gastos })
+        setFallanGastos(false)
+      },
+      alFallarGastos: () => setFallanGastos(true),
+      alConectar: (cuentaExiste: boolean) => pasarDatosViejos(s, cuentaExiste, datosRef.current.trabajos),
       alCambiarEstado: setEstadoNube,
     })
     sync.current = s
@@ -153,6 +167,13 @@ export function DatosProvider({ clave, children }: { clave: string | null; child
     sync.current?.guardarValores(valores)
   }
 
+  const guardarGasto = (gasto: Gasto) => {
+    const { gastos } = datosRef.current
+    const existe = gastos.some((g) => g.id === gasto.id)
+    cambiar({ ...datosRef.current, gastos: existe ? gastos.map((g) => (g.id === gasto.id ? gasto : g)) : [...gastos, gasto] })
+    sync.current?.guardarGasto(gasto)
+  }
+
   const quitar = (aBorrar: Trabajo[], aPapelera: boolean) => {
     if (aBorrar.length === 0) return
     cambiar({ ...datosRef.current, trabajos: datosRef.current.trabajos.filter((t) => !aBorrar.includes(t)) })
@@ -163,10 +184,11 @@ export function DatosProvider({ clave, children }: { clave: string | null; child
     ...datos,
     listo,
     estadoNube,
+    fallanGastos,
     clave,
     guardarValores,
     guardarTrabajo,
-    crearTrabajo: (tipo) => {
+    crearTrabajo: (tipo, datos) => {
       const { valores } = datosRef.current
       const nuevo: Trabajo = {
         id: nuevoId(),
@@ -175,13 +197,18 @@ export function DatosProvider({ clave, children }: { clave: string | null; child
         empleadoIds: tipo === 'medicion' ? [] : valores.empleados.map((e) => e.id),
         trabajeYo: false,
         conPlus: false,
-        tramos: [{ id: nuevoId(), fecha: hoy(), desde: '', hasta: '', feriado: false }],
+        tramos: tipo === 'medicion' ? [{ id: nuevoId(), fecha: hoy(), desde: '', hasta: '', feriado: false }] : [],
         descuentos: [],
         valores: structuredClone(valores),
         creada: new Date().toISOString(),
+        ...datos,
       }
       guardarTrabajo(nuevo)
       return nuevo.id
+    },
+    actualizarTrabajo: (id, cambio) => {
+      const trabajo = datosRef.current.trabajos.find((t) => t.id === id)
+      if (trabajo) guardarTrabajo(cambio(trabajo))
     },
     borrarTrabajo: (id) => quitar(datosRef.current.trabajos.filter((t) => t.id === id), true),
     limpiarVacios: () => quitar(datosRef.current.trabajos.filter(estaVacio), false),
@@ -193,11 +220,25 @@ export function DatosProvider({ clave, children }: { clave: string | null; child
     cargarCopia: (copia) => {
       guardarValores(copia.valores)
       copia.trabajos.forEach(guardarTrabajo)
+      copia.gastos.forEach(guardarGasto)
     },
     leerPapelera: () => sync.current?.leerPapelera() ?? Promise.resolve([]),
     recuperarTrabajo: (borrado) => {
       const trabajo = sync.current?.recuperarTrabajo(borrado)
       if (trabajo) cambiar({ ...datosRef.current, trabajos: [...datosRef.current.trabajos, trabajo] })
+      else {
+        // Sin nube no hay papelera: se vuelve a guardar y listo.
+        const { borradoEl: _, ...sinFecha } = borrado
+        guardarTrabajo(sinFecha)
+      }
+    },
+    guardarGasto,
+    borrarGasto: (id) => {
+      const gasto = datosRef.current.gastos.find((g) => g.id === id)
+      if (!gasto) return undefined
+      cambiar({ ...datosRef.current, gastos: datosRef.current.gastos.filter((g) => g.id !== id) })
+      sync.current?.borrarGasto(gasto)
+      return gasto
     },
   }
 

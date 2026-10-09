@@ -306,3 +306,41 @@ test('Si marcó que fue pero ningún día estuvo, cobra el proporcional como sie
   assert.equal(r.miParte.tipo, 'proporcional')
   assert.equal(r.miParte.monto, Math.round(((10 * 4) / 5) * 33835))
 })
+
+test('"¿Y vos fuiste?" se pregunta en cada día: sin contestar no suma nada de él', () => {
+  const e = trabajo({
+    empleadoIds: ['emi', 'nico', 'naza'],
+    trabajeYo: false,
+    tramos: [
+      { ...tramo('2026-10-12', '08:00', '18:00'), yo: 'todo' },
+      { ...tramo('2026-10-13', '08:00', '18:00'), yo: null },
+    ],
+  })
+  const r = calcularTrabajo(e, [e])
+  // Ya no hace falta la casilla "Fui yo también": el lunes contestó "Todo el día".
+  if (r.miParte.tipo !== 'mixto') throw new Error(r.miParte.tipo)
+  assert.equal(r.miParte.horasMias, 10)
+  // El martes sin contestar cuenta como que no fue (proporcional por esas horas).
+  assert.equal(r.miParte.horasSinMi, 10)
+})
+
+test('Lo cargado antes del cambio sigue la casilla "Fui yo también"', () => {
+  const viejo = trabajo({ trabajeYo: true, tramos: [tramo('2026-10-12', '08:00', '18:00')] })
+  assert.equal(calcularTrabajo(viejo, [viejo]).miParte.tipo, 'horas')
+  const viejoSinEl = trabajo({ trabajeYo: false, tramos: [tramo('2026-10-12', '08:00', '18:00')] })
+  assert.equal(calcularTrabajo(viejoSinEl, [viejoSinEl]).miParte.tipo, 'proporcional')
+})
+
+test('Gastos: se le cobran a CR sin IVA y no cambian lo que le queda', () => {
+  const gasto = (id: string, fecha: string, monto: number) =>
+    ({ id, fecha, monto, categoria: 'nafta', nota: '', trabajoId: null, lugar: '', creado: fecha }) as const
+  const gastos = [gasto('g1', '2026-09-11', 40000), gasto('g2', '2026-09-13', 22000), gasto('g3', '2026-09-14', 9999)]
+  const sin = resumirSemana('2026-09-07', semana, 21)
+  const con = resumirSemana('2026-09-07', semana, 21, gastos)
+  assert.equal(con.gastos.length, 2)
+  assert.equal(con.totalGastos, 62000)
+  assert.equal(con.iva, sin.iva)
+  assert.equal(con.totalACobrar, sin.totalConIva + 62000)
+  assert.equal(con.ganancia, sin.ganancia)
+  assert.deepEqual(listarSemanas([], gastos), ['2026-09-14', '2026-09-07'])
+})

@@ -6,6 +6,7 @@ import { autoTable, type RowInput, type UserOptions } from 'jspdf-autotable'
 import type { DiaCalculado, PagoEmpleado, Reparto, ResultadoTrabajo, ResumenSemana, TipoDia } from './calculos.ts'
 import { fechaCorta, horas, nombreDia, plata, plataExacta, rangoDeFechas } from './formato.ts'
 import type { Trabajo } from './tipos.ts'
+import { nombreDelGasto } from './gastos.ts'
 import { nombreDelTrabajo, TIPOS } from './tiposDeTrabajo.ts'
 
 export type DatosPlanilla = { titular: string; cliente: string }
@@ -202,10 +203,34 @@ export function crearPlanillaCliente(semana: ResumenSemana, { titular, cliente }
     d.y += 10
   }
 
+  // Lo que puso en efectivo: se cobra aparte y sin IVA.
+  if (semana.gastos.length > 0) {
+    d.lugarPara(35)
+    d.titulo('Gastos', 'Sin IVA')
+    d.y += 3
+    d.tabla({
+      head: [['Día', 'Fecha', 'Gasto', 'Estación', 'Importe']],
+      body: semana.gastos.map((g) => {
+        const detalle = g.categoria !== 'otro' && g.nota.trim() ? ` (${g.nota.trim()})` : ''
+        return [nombreDia(g.fecha), fechaCorta(g.fecha), nombreDelGasto(g) + detalle, g.lugar || '-', pesos(g.monto)]
+      }),
+      foot: [[{ content: 'Total gastos', colSpan: 4 }, pesos(semana.totalGastos)]],
+      columnStyles: { 4: { cellWidth: 32 } },
+      headStyles: { ...estiloTabla.headStyles, fillColor: SUAVE },
+      ...numerosDesde(4),
+    })
+    d.y += 10
+  }
+
   // Al final, el resumen de la semana con el total.
-  d.lugarPara(70)
+  d.lugarPara(80)
   d.titulo('Resumen de la semana')
   d.y += 3
+  const negrita = (texto: string, monto: number): RowInput => [
+    { content: texto, styles: { fontStyle: 'bold' } },
+    { content: pesos(monto), styles: { fontStyle: 'bold' } },
+  ]
+  const hayGastos = semana.gastos.length > 0
   d.tabla({
     head: [['Trabajo', 'Importe']],
     body: [
@@ -213,10 +238,11 @@ export function crearPlanillaCliente(semana: ResumenSemana, { titular, cliente }
         `${nombreDelTrabajo(trabajo)} (${TIPOS[trabajo.tipo].nombre.toLowerCase()})`,
         pesos(resultado.total),
       ]),
-      [{ content: 'Subtotal', styles: { fontStyle: 'bold' } }, { content: pesos(semana.subtotal), styles: { fontStyle: 'bold' } }],
+      negrita('Subtotal', semana.subtotal),
       [`IVA ${semana.porcentajeIva.toLocaleString('es-AR')}%`, pesos(semana.iva)],
+      ...(hayGastos ? [negrita('Total con IVA', semana.totalConIva), ['Gastos (sin IVA)', pesos(semana.totalGastos)]] : []),
     ],
-    foot: [['Total a cobrar con IVA', pesos(semana.totalConIva)]],
+    foot: [hayGastos ? ['Total a cobrar', pesos(semana.totalACobrar)] : ['Total a cobrar con IVA', pesos(semana.totalConIva)]],
     footStyles: { fillColor: PRIMARIO, textColor: 255, fontStyle: 'bold', fontSize: 12 },
     columnStyles: { 1: { cellWidth: 40 } },
     ...numerosDesde(1),
@@ -363,6 +389,9 @@ export function crearPlanillaPagos(semana: ResumenSemana, { titular, cliente }: 
   desglose.push(`pulmón ${pesos(semana.diferenciaEmpleados)}`)
   const menos = semana.descuentos ? ` - descuentos ${pesos(semana.descuentos)}` : ''
   d.nota(`De dónde sale: ${desglose.join(' + ')}${menos}.`)
+  if (semana.totalGastos > 0) {
+    d.nota(`Aparte, ${cliente} te devuelve ${pesos(semana.totalGastos)} de gastos que pusiste (no cambia lo que te queda).`)
+  }
   d.y += 10
 
   d.lugarPara(20)

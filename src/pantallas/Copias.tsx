@@ -1,16 +1,28 @@
-import { ArchiveRestore, Copy, Download, Link, Share2, Upload } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { ArchiveRestore, Copy, Download, Share2, Upload } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { linkConClave } from '../clave.ts'
 import { descargarCopia, leerCopia } from '../copias.ts'
 import { useDatos } from '../datos.tsx'
 import { diasCortos } from '../formato.ts'
 import type { TrabajoBorrado } from '../nube/sincronizar.ts'
+import { useAvisar } from '../toast.tsx'
 import { nombreDelTrabajo, TIPOS } from '../tiposDeTrabajo.ts'
-import { Boton, BotonTexto, Tarjeta } from '../ui.tsx'
+import { Boton, BotonTexto, Lista, Pantalla, Renglon, Subtitulo } from '../ui.tsx'
 
-function OtroAparato({ clave }: { clave: string }) {
+const texto = 'mt-3 text-[1.05rem]'
+
+export function PantallaOtroAparato() {
+  const { clave } = useDatos()
   const [copiado, setCopiado] = useState(false)
+  if (!clave) {
+    return (
+      <Pantalla volver="Valores" titulo="Abrir en otro aparato">
+        <p className={texto}>En este aparato la app guarda solo acá, sin la nube.</p>
+      </Pantalla>
+    )
+  }
   const link = linkConClave(clave)
+
   const copiar = async () => {
     try {
       await navigator.clipboard.writeText(link)
@@ -20,124 +32,117 @@ function OtroAparato({ clave }: { clave: string }) {
       prompt('Copiá este link:', link)
     }
   }
+
   return (
-    <Tarjeta titulo="Abrir en otro aparato" icono={Link}>
-      <p className="text-base">
+    <Pantalla volver="Valores" titulo="Abrir en otro aparato">
+      <p className={texto}>
         Para usarla en la compu o en otro celular, abrí este link ahí. Es como una llave: no se lo pases a nadie más.
       </p>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Boton variante="secundario" icono={Copy} onClick={copiar}>
-          {copiado ? '¡Copiado!' : 'Copiar link'}
+      <div className="mt-4 flex flex-col gap-2.5">
+        <Boton icono={Copy} onClick={copiar}>
+          {copiado ? '¡Copiado!' : 'Copiar el link'}
         </Boton>
         {'share' in navigator && (
-          <Boton
-            variante="secundario"
-            icono={Share2}
-            onClick={() => navigator.share({ title: 'Mis Estaciones', url: link }).catch(() => {})}
-          >
+          <Boton variante="secundario" icono={Share2} onClick={() => navigator.share({ title: 'Mis Estaciones', url: link }).catch(() => {})}>
             Mandarlo
           </Boton>
         )}
       </div>
-    </Tarjeta>
+    </Pantalla>
   )
 }
 
-function Borrados() {
-  const { leerPapelera, recuperarTrabajo } = useDatos()
-  const [borrados, setBorrados] = useState<TrabajoBorrado[] | null>(null)
-  const [cargando, setCargando] = useState(false)
-
-  const ver = async () => {
-    setCargando(true)
-    try {
-      setBorrados(await leerPapelera())
-    } catch {
-      alert('No se pudieron traer los borrados. Probá con internet.')
-    } finally {
-      setCargando(false)
-    }
-  }
-
-  const recuperar = (borrado: TrabajoBorrado) => {
-    recuperarTrabajo(borrado)
-    setBorrados((lista) => lista?.filter((b) => b.id !== borrado.id) ?? null)
-  }
-
-  return (
-    <Tarjeta titulo="Trabajos borrados" icono={ArchiveRestore}>
-      {borrados === null ? (
-        <>
-          <p className="text-base">Si borraste algo sin querer, lo podés recuperar.</p>
-          <BotonTexto icono={ArchiveRestore} onClick={ver}>
-            {cargando ? 'Buscando…' : 'Ver trabajos borrados'}
-          </BotonTexto>
-        </>
-      ) : borrados.length === 0 ? (
-        <p className="text-base text-texto-suave">No hay trabajos borrados.</p>
-      ) : (
-        borrados.map((b) => (
-          <div key={b.id} className="flex items-center justify-between gap-3 border-t border-borde pt-2">
-            <div className="min-w-0">
-              <p className="text-base font-semibold">{nombreDelTrabajo(b)}</p>
-              <p className="text-sm text-texto-suave">
-                {TIPOS[b.tipo].nombre} · {diasCortos(b.tramos.map((t) => t.fecha))} · borrado el{' '}
-                {new Date(b.borradoEl).toLocaleDateString('es-AR')}
-              </p>
-            </div>
-            <BotonTexto onClick={() => recuperar(b)}>Recuperar</BotonTexto>
-          </div>
-        ))
-      )}
-    </Tarjeta>
-  )
-}
-
-/** Link para otros aparatos, copias de seguridad y trabajos borrados. */
-export function CopiasYAcceso() {
-  const { clave, valores, trabajos, estadoNube, cargarCopia } = useDatos()
+export function PantallaCopias() {
+  const { clave, valores, trabajos, gastos, estadoNube, cargarCopia } = useDatos()
+  const avisar = useAvisar()
   const archivo = useRef<HTMLInputElement>(null)
+  const enNube = clave && estadoNube !== 'solo-local'
 
   const cargar = async (lista: FileList | null) => {
-    const texto = await lista?.[0]?.text()
+    const contenido = await lista?.[0]?.text()
     if (archivo.current) archivo.current.value = ''
-    if (!texto) return
-    const copia = leerCopia(texto)
+    if (!contenido) return
+    const copia = leerCopia(contenido)
     if (!copia) {
       alert('Ese archivo no es una copia de Mis Estaciones.')
       return
     }
     const pregunta =
-      `La copia tiene ${copia.trabajos.length} trabajos. Se cargan todos y reemplazan a los que ya estén con el mismo ` +
+      `La copia tiene ${copia.trabajos.length} trabajos${copia.gastos.length ? ` y ${copia.gastos.length} gastos` : ''}. ` +
+      'Se cargan todos y reemplazan a los que ya estén con el mismo ' +
       'nombre y fecha. También se cargan los valores y precios de la copia. ¿Seguir?'
-    if (confirm(pregunta)) cargarCopia(copia)
+    if (!confirm(pregunta)) return
+    cargarCopia(copia)
+    avisar({ texto: 'Copia cargada' })
   }
 
-  const enNube = clave && estadoNube !== 'solo-local'
-
   return (
-    <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6">
-      {enNube && <OtroAparato clave={clave} />}
-      <Tarjeta titulo="Copias de seguridad" icono={Download}>
-        <p className="text-base">
-          {enNube ? 'Todo ya está guardado en la nube. ' : ''}Si querés tener una copia aparte (por ejemplo, en la compu),
-          descargala acá. Con ese archivo se puede recuperar todo.
-        </p>
-        <Boton variante="secundario" icono={Download} onClick={() => descargarCopia({ valores, trabajos })}>
+    <Pantalla volver="Valores" titulo="Copias de seguridad">
+      <p className={texto}>
+        {enNube ? 'Todo ya está guardado en la nube. ' : ''}Si querés tener una copia aparte (por ejemplo, en la compu),
+        descargala acá. Con ese archivo se puede recuperar todo.
+      </p>
+      <div className="mt-4">
+        <Boton icono={Download} onClick={() => descargarCopia({ valores, trabajos, gastos })}>
           Descargar copia completa
         </Boton>
+      </div>
+      <div className="mt-2">
         <BotonTexto icono={Upload} onClick={() => archivo.current?.click()}>
           Cargar una copia
         </BotonTexto>
-        <input
-          ref={archivo}
-          type="file"
-          accept="application/json,.json"
-          className="hidden"
-          onChange={(e) => cargar(e.target.files)}
-        />
-      </Tarjeta>
-      {enNube && <Borrados />}
-    </div>
+      </div>
+      <input ref={archivo} type="file" accept="application/json,.json" className="hidden" onChange={(e) => cargar(e.target.files)} />
+    </Pantalla>
+  )
+}
+
+export function PantallaBorrados() {
+  const { leerPapelera, recuperarTrabajo } = useDatos()
+  const avisar = useAvisar()
+  const [borrados, setBorrados] = useState<TrabajoBorrado[] | null>(null)
+  const [error, setError] = useState(false)
+
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- solo al entrar a la pantalla
+  useEffect(() => {
+    leerPapelera()
+      .then(setBorrados)
+      .catch(() => setError(true))
+  }, [])
+
+  const recuperar = (borrado: TrabajoBorrado) => {
+    recuperarTrabajo(borrado)
+    setBorrados((lista) => lista?.filter((b) => b.id !== borrado.id) ?? null)
+    avisar({ texto: `${nombreDelTrabajo(borrado)} recuperado` })
+  }
+
+  return (
+    <Pantalla volver="Valores" titulo="Recuperar algo borrado">
+      <p className={texto}>Si borraste una estación sin querer, la recuperás acá con todos sus días.</p>
+      <div className="mt-4">
+        {error ? (
+          <Subtitulo>No se pudieron traer los borrados. Probá con internet.</Subtitulo>
+        ) : borrados === null ? (
+          <Subtitulo>Buscando…</Subtitulo>
+        ) : borrados.length === 0 ? (
+          <Subtitulo>No hay nada borrado.</Subtitulo>
+        ) : (
+          <Lista>
+            {borrados.map((b) => (
+              <Renglon
+                key={b.id}
+                icono={ArchiveRestore}
+                titulo={nombreDelTrabajo(b)}
+                detalle={`${TIPOS[b.tipo].nombre} · ${diasCortos(b.tramos.map((t) => t.fecha))} · borrado el ${new Date(
+                  b.borradoEl,
+                ).toLocaleDateString('es-AR')}`}
+                accion="Recuperar"
+                onClick={() => recuperar(b)}
+              />
+            ))}
+          </Lista>
+        )}
+      </div>
+    </Pantalla>
   )
 }

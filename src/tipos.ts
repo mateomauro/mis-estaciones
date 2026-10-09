@@ -32,10 +32,11 @@ export type Tramo = {
   hasta: string
   feriado: boolean
   /**
-   * En una estación donde fue él: si ese día no fue, estuvo todo el día o un rato (de yoDesde a yoHasta).
-   * Si no está, cuenta como todo el día (así se cargaba antes).
+   * Si él fue ese día: no fue, todo el día o un rato (de yoDesde a yoHasta).
+   * null = todavía no contestó (no se suma nada de él). Sin el dato = cargado antes del
+   * cambio: sigue la casilla "trabajeYo" del trabajo.
    */
-  yo?: PresenciaMia
+  yo?: PresenciaMia | null
   yoDesde?: string
   yoHasta?: string
 }
@@ -60,12 +61,32 @@ export type Trabajo = {
   tipo: TipoTrabajo
   nombre: string
   empleadoIds: string[]
-  /** Si él trabajó en la estación cobra sus horas derecho, sin proporcional. */
+  /** Solo para lo cargado antes de preguntar "¿Y vos fuiste?" en cada día. */
   trabajeYo: boolean
+  /** Terminada: suma el plus. */
   conPlus: boolean
+  /** Ya terminaron ahí (con o sin plus): deja de aparecer en "¿Dónde estuvieron hoy?". */
+  cerrada?: boolean
   tramos: Tramo[]
   descuentos: Descuento[]
   /** Copia de los valores vigentes al crear el trabajo. */
   valores: Valores
   creada: string
+}
+
+export type CategoriaGasto = 'nafta' | 'comida' | 'materiales' | 'herramientas' | 'peaje' | 'otro'
+
+/** Lo que él pone en efectivo y después le cobra a CR (sin IVA). */
+export type Gasto = {
+  id: string
+  /** AAAA-MM-DD: con la fecha se sabe de qué semana es. */
+  fecha: string
+  monto: number
+  categoria: CategoriaGasto
+  nota: string
+  /** De qué estación fue, si la eligió. */
+  trabajoId: string | null
+  /** El nombre de esa estación, por si después se borra. */
+  lugar: string
+  creado: string
 }

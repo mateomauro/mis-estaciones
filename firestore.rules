@@ -8,7 +8,7 @@ service cloud.firestore {
       allow get, create, update: if clave.size() >= 32;
 
       match /{coleccion}/{id} {
-        allow read, write: if clave.size() >= 32 && coleccion in ['trabajos', 'papelera'];
+        allow read, write: if clave.size() >= 32 && coleccion in ['trabajos', 'papelera', 'gastos'];
       }
     }
   }

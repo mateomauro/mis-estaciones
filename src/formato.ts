@@ -38,6 +38,26 @@ export const fechaCorta = (fecha: string) => {
 export const fechaLarga = (fecha: Date) =>
   mayuscula(fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }))
 
+/** "2026-10-09" → "Viernes 9 de octubre" */
+export const fechaConDia = (fecha: string) => {
+  const f = aFecha(fecha)
+  return `${nombreDia(fecha)} ${f.getDate()} de ${MESES[f.getMonth()]}`
+}
+
+/** "2026-10-09" → "viernes 9/10" */
+export const diaYFecha = (fecha: string) => `${nombreDia(fecha).toLowerCase()} ${fechaCorta(fecha)}`
+
+/** "2026-10-05", "2026-10-11" → "5 al 11/10"; "2026-09-28", "2026-10-04" → "28/9 al 4/10" */
+export const rangoCorto = (desde: string, hasta: string) => {
+  const a = aFecha(desde)
+  const b = aFecha(hasta)
+  return a.getMonth() === b.getMonth() ? `${a.getDate()} al ${fechaCorta(hasta)}` : `${fechaCorta(desde)} al ${fechaCorta(hasta)}`
+}
+
+/** ["Emi", "Nico", "Naza"] → "Emi, Nico y Naza" */
+export const conY = (nombres: string[]) =>
+  nombres.length <= 1 ? (nombres[0] ?? '') : `${nombres.slice(0, -1).join(', ')} y ${nombres.at(-1)}`
+
 export const hoy = () => aTexto(new Date())
 
 export const sumarDias = (fecha: string, dias: number) => {

@@ -1,7 +1,7 @@
-import { KeyRound } from 'lucide-react'
+import { LogIn } from 'lucide-react'
 import { useState } from 'react'
 import { extraerClave } from '../clave.ts'
-import { Boton, CampoTexto, Pantalla, Tarjeta } from '../ui.tsx'
+import { Aviso, Boton, CampoTexto, Pantalla } from '../ui.tsx'
 
 /** Se ve solo si se abre la app sin el link (por ejemplo, desde otro aparato por primera vez). */
 export function PantallaSinClave({ alEntrar }: { alEntrar: (clave: string) => void }) {
@@ -15,23 +15,25 @@ export function PantallaSinClave({ alEntrar }: { alEntrar: (clave: string) => vo
   }
 
   return (
-    <Pantalla titulo="Mis estaciones">
-      <Tarjeta titulo="Abrí la app con tu link" icono={KeyRound}>
-        <p className="text-base">
-          Para ver tus datos, abrí el link que te mandaron por WhatsApp. Si ya lo tenés copiado, pegalo acá abajo.
-        </p>
-        <CampoTexto
-          etiqueta="Link"
-          valor={texto}
-          ejemplo="https://…?clave=…"
-          alCambiar={(t) => {
-            setTexto(t)
-            setError(false)
-          }}
-        />
-        {error && <p className="text-base text-peligro">Ese link no sirve. Copialo entero y probá de nuevo.</p>}
-        <Boton onClick={entrar}>Entrar</Boton>
-      </Tarjeta>
+    <Pantalla titulo="Mis Estaciones" subtitulo="Abrí la app con tu link">
+      <p className="mt-4 text-[1.05rem]">
+        Para ver tus datos, abrí el link que te mandaron por WhatsApp. Si ya lo tenés copiado, pegalo acá abajo.
+      </p>
+      <CampoTexto
+        etiqueta="Link"
+        valor={texto}
+        ejemplo="https://…?clave=…"
+        alCambiar={(t) => {
+          setTexto(t)
+          setError(false)
+        }}
+      />
+      {error && <Aviso tipo="atencion">Ese link no sirve. Copialo entero y probá de nuevo.</Aviso>}
+      <div className="mt-4">
+        <Boton icono={LogIn} onClick={entrar}>
+          Entrar
+        </Boton>
+      </div>
     </Pantalla>
   )
 }

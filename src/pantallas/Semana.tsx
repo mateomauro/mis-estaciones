@@ -1,12 +1,14 @@
-import { FileDown, FileSpreadsheet, HandCoins, PiggyBank, Receipt, RefreshCw, Share2 } from 'lucide-react'
+import { Download, FileLock2, RefreshCw, Send } from 'lucide-react'
 import { useState } from 'react'
-import { resumirSemana } from '../calculos.ts'
+import { inicioDeSemana, resumirSemana } from '../calculos.ts'
 import { useDatos } from '../datos.tsx'
-import { horas, plata, rangoDeFechas } from '../formato.ts'
-import { ir } from '../navegacion.ts'
+import { hoy, plata, rangoCorto, sumarDias } from '../formato.ts'
+import { nombreDelGasto } from '../gastos.ts'
+import { ir, reemplazar } from '../navegacion.ts'
 import type { TipoPlanilla } from '../planilla.ts'
 import { nombreCliente, nombreDelTrabajo, nombreTitular, TIPOS } from '../tiposDeTrabajo.ts'
-import { Aviso, Boton, BotonTexto, Destacado, Fila, FilaEnlace, Pantalla, Tarjeta } from '../ui.tsx'
+import { Aviso, Boton, BotonTexto, Fila, Lista, Pantalla, Plegado, Renglon, Semanero, Subtitulo, Titulo } from '../ui.tsx'
+import { LibroCuentas } from './cuentas.tsx'
 
 // Compartir archivos solo anda en celulares y con la app publicada (https).
 const puedeCompartir = (() => {
@@ -17,17 +19,41 @@ const puedeCompartir = (() => {
   }
 })()
 
-export function PantallaSemana({ inicio }: { inicio: string }) {
-  const { trabajos, valores, listo, actualizarValoresDeSemana } = useDatos()
-  const [generando, setGenerando] = useState<TipoPlanilla | null>(null)
-  const semana = resumirSemana(inicio, trabajos, valores.iva)
-  const cliente = nombreCliente(valores)
-  const titulo = `Semana ${rangoDeFechas(semana.inicio, semana.fin)}`
+/** "Esta semana", "Semana pasada" o nada, para el subtítulo de las semanas. */
+export function nombreDeSemana(inicio: string) {
+  const esta = inicioDeSemana(hoy())
+  if (inicio === esta) return 'Esta semana'
+  if (inicio === sumarDias(esta, -7)) return 'Semana pasada'
+  return inicio > esta ? 'Semana que viene' : null
+}
 
-  if (semana.cobros.length === 0) {
+/** Flechas para ir de semana en semana sin llenar el "atrás" del celular. */
+export function flechasDeSemana(inicio: string, ruta: string) {
+  const esta = inicioDeSemana(hoy())
+  return {
+    anterior: () => reemplazar(`${ruta}/${sumarDias(inicio, -7)}`),
+    siguiente: inicio < esta ? () => reemplazar(`${ruta}/${sumarDias(inicio, 7)}`) : undefined,
+  }
+}
+
+export function PantallaSemana({ inicio = inicioDeSemana(hoy()) }: { inicio?: string }) {
+  const { trabajos, gastos, valores, listo, actualizarValoresDeSemana } = useDatos()
+  const [generando, setGenerando] = useState<TipoPlanilla | null>(null)
+  const semana = resumirSemana(inicio, trabajos, valores.iva, gastos)
+  const cliente = nombreCliente(valores)
+  const cantidad = `${semana.cobros.length} ${semana.cobros.length === 1 ? 'trabajo' : 'trabajos'}`
+  const cabecera = (
+    <Semanero
+      titulo={rangoCorto(semana.inicio, semana.fin)}
+      subtitulo={[nombreDeSemana(inicio), cantidad].filter(Boolean).join(' · ')}
+      {...flechasDeSemana(inicio, '/semana')}
+    />
+  )
+
+  if (semana.cobros.length === 0 && semana.gastos.length === 0) {
     return (
-      <Pantalla titulo={titulo} volver>
-        <p className="text-base">{listo ? 'No hay nada cargado en esta semana.' : 'Cargando…'}</p>
+      <Pantalla cabecera={cabecera} solapa="semana">
+        <Subtitulo className="mt-6 text-center">{listo ? 'No hay nada cargado en esta semana.' : 'Cargando…'}</Subtitulo>
       </Pantalla>
     )
   }
@@ -48,121 +74,103 @@ export function PantallaSemana({ inicio }: { inicio: string }) {
     }
   }
 
-  const faltanValores = semana.pagos.filter((p) => p.faltaValor)
-
   const actualizar = () => {
     if (!confirm('¿Usar los valores y precios de hoy en todos los trabajos de esta semana?')) return
     actualizarValoresDeSemana(inicio)
   }
 
+  const faltanValores = semana.pagos.filter((p) => p.faltaValor)
+  const categorias = [...new Set(semana.gastos.map((g) => nombreDelGasto(g).toLowerCase()))]
+
   return (
-    <Pantalla
-      titulo={titulo}
-      volver
-      acciones={
-        <>
-          <Boton icono={FileDown} onClick={() => planilla('cliente')} deshabilitado={generando !== null}>
-            {generando === 'cliente' ? 'Armando…' : `PDF para ${cliente} (Soledad)`}
-          </Boton>
-          {puedeCompartir && (
-            <Boton
-              variante="secundario"
-              icono={Share2}
-              onClick={() => planilla('cliente', true)}
-              deshabilitado={generando !== null}
-            >
-              Compartir
+    <Pantalla cabecera={cabecera} solapa="semana">
+      <Titulo>Cuentas de la semana</Titulo>
+      <LibroCuentas totales={semana} cliente={cliente} />
+      <Plegado titulo="¿De dónde sale lo que te queda?">
+        <Fila etiqueta="Tu parte" valor={plata(semana.tuParte)} detalle="Tu proporcional, tus horas y los viajes a medir." />
+        {semana.plus > 0 && <Fila etiqueta="Plus" valor={plata(semana.plus)} />}
+        <Fila
+          etiqueta="Pulmón de los empleados"
+          valor={plata(semana.diferenciaEmpleados)}
+          detalle={`Lo que cobrás a ${cliente} por ellos menos lo que les pagás. Para aguinaldos y vacaciones.`}
+        />
+        {semana.descuentos > 0 && <Fila etiqueta="Descuentos" valor={`− ${plata(semana.descuentos)}`} />}
+        <Fila etiqueta="Te queda" valor={plata(semana.ganancia)} fuerte />
+      </Plegado>
+
+      {semana.cobros.length > 0 && (
+        <div className="mt-4">
+          {puedeCompartir ? (
+            <>
+              <Boton icono={Send} onClick={() => planilla('cliente', true)} deshabilitado={generando !== null}>
+                {generando === 'cliente' ? 'Armando la planilla…' : 'Mandar planilla a Soledad'}
+              </Boton>
+              <BotonTexto icono={Download} onClick={() => planilla('cliente')}>
+                Guardar el PDF en el celu
+              </BotonTexto>
+            </>
+          ) : (
+            <Boton icono={Download} onClick={() => planilla('cliente')} deshabilitado={generando !== null}>
+              {generando === 'cliente' ? 'Armando la planilla…' : 'Descargar planilla para Soledad'}
             </Boton>
           )}
-        </>
-      }
-    >
-      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6">
-        <Tarjeta titulo={`Cobro a ${cliente}`} icono={Receipt}>
-          <div className="-mx-4 border-y border-borde">
-            {semana.cobros.map(({ trabajo, resultado }) => (
-              <FilaEnlace
-                key={trabajo.id}
-                icono={TIPOS[trabajo.tipo].icono}
-                titulo={nombreDelTrabajo(trabajo)}
-                detalle={`${TIPOS[trabajo.tipo].nombre} · ${horas(resultado.totalMinutos)} h`}
-                valor={plata(resultado.total)}
-                onClick={() => ir(`/trabajo/${trabajo.id}`)}
-              />
-            ))}
-          </div>
-          <Fila etiqueta="Subtotal" valor={plata(semana.subtotal)} />
-          <Fila etiqueta={`IVA ${semana.porcentajeIva.toLocaleString('es-AR')}%`} valor={plata(semana.iva)} />
-          <Destacado etiqueta="Total con IVA" monto={semana.totalConIva} />
-        </Tarjeta>
-
-        <div className="flex flex-col gap-4">
-          <Tarjeta
-            titulo="Pago a empleados"
-            icono={HandCoins}
-            derecha={<span className="text-lg font-bold tabular-nums">{plata(semana.totalPagos)}</span>}
-          >
-            <p className="-mt-1 text-sm text-texto-suave">
-              Día de 10 h: extra desde la hora 10. A {cliente} se le cobra con día de 9 h.
-            </p>
-            {semana.pagos.length === 0 ? (
-              <p className="text-base text-texto-suave">Esta semana no hay empleados para pagar.</p>
-            ) : (
-              <>
-                {faltanValores.length > 0 && (
-                  <Aviso tipo="atencion">
-                    Falta cargar cuánto le pagás por día a {faltanValores.map((p) => p.nombre).join(', ')}. Cargalo en
-                    “Valores y precios” y después tocá “Usar valores de hoy” acá abajo.
-                  </Aviso>
-                )}
-                {semana.pagos.map((pago) => (
-                  <div key={pago.empleadoId}>
-                    <Fila etiqueta={<span className="font-semibold">{pago.nombre}</span>} valor={plata(pago.total)} />
-                    <p className="text-sm text-texto-suave">
-                      {horas(pago.reparto.simples)} h simples + {horas(pago.reparto.al50 + pago.reparto.al100)} h extras ·
-                      a {cliente} le cobrás {plata(pago.cobrado)}
-                    </p>
-                  </div>
-                ))}
-                <Boton
-                  variante="secundario"
-                  icono={FileSpreadsheet}
-                  onClick={() => planilla('pagos')}
-                  deshabilitado={generando !== null}
-                >
-                  {generando === 'pagos' ? 'Armando…' : 'PDF de pagos con las cuentas'}
-                </Boton>
-              </>
-            )}
-          </Tarjeta>
-
-          <Tarjeta titulo="Tu ganancia" icono={PiggyBank}>
-            <Fila etiqueta="Cobrás (sin IVA)" valor={plata(semana.subtotal)} />
-            <Fila etiqueta="Pago a empleados" valor={`− ${plata(semana.totalPagos)}`} />
-            <Destacado etiqueta="Te queda" monto={semana.ganancia} color="acento" />
-            <details className="text-base">
-              <summary className="min-h-7 cursor-pointer font-semibold text-primario">¿De dónde sale?</summary>
-              <div className="mt-2 flex flex-col gap-1">
-                <Fila etiqueta="Tu parte" valor={plata(semana.tuParte)} />
-                {semana.plus > 0 && <Fila etiqueta="Plus" valor={plata(semana.plus)} />}
-                <Fila etiqueta="Pulmón empleados" valor={plata(semana.diferenciaEmpleados)} />
-                {semana.descuentos > 0 && <Fila etiqueta="Descuentos" valor={`− ${plata(semana.descuentos)}`} />}
-                <p className="mt-1 text-sm text-texto-suave">
-                  Tu parte es el proporcional, tus horas y los viajes a medir. El pulmón es la diferencia entre lo que
-                  cobrás y lo que pagás por los empleados, para aguinaldos y vacaciones.
-                </p>
-              </div>
-            </details>
-          </Tarjeta>
-
-          <div className="flex flex-col">
-            <p className="text-sm text-texto-suave">¿Cambiaste precios después de cargar esta semana?</p>
-            <BotonTexto icono={RefreshCw} onClick={actualizar}>
-              Usar valores de hoy en toda la semana
-            </BotonTexto>
-          </div>
         </div>
-      </div>
+      )}
+
+      <Titulo>Trabajos</Titulo>
+      <Lista>
+        {semana.cobros.map(({ trabajo, resultado }) => (
+          <Renglon
+            key={trabajo.id}
+            titulo={nombreDelTrabajo(trabajo)}
+            detalle={TIPOS[trabajo.tipo].nombre}
+            valor={plata(resultado.total)}
+            onClick={() => ir(`/trabajo/${trabajo.id}`)}
+          />
+        ))}
+        {semana.gastos.length > 0 && (
+          <Renglon
+            titulo="Gastos"
+            detalle={`${semana.gastos.length} ${semana.gastos.length === 1 ? 'gasto' : 'gastos'} · ${categorias.join(', ')}`}
+            valor={plata(semana.totalGastos)}
+            onClick={() => ir(`/gastos/${inicio}`)}
+          />
+        )}
+      </Lista>
+
+      {semana.pagos.length > 0 && (
+        <>
+          <Titulo>Pago a empleados</Titulo>
+          {faltanValores.length > 0 && (
+            <Aviso tipo="atencion">
+              Falta cargar cuánto le pagás por día a {faltanValores.map((p) => p.nombre).join(', ')}. Cargalo en Valores y
+              después tocá “Usar los valores de hoy”, acá abajo.
+            </Aviso>
+          )}
+          <div className={faltanValores.length > 0 ? 'mt-3' : ''}>
+            <Lista>
+              {semana.pagos.map((pago) => (
+                <Renglon key={pago.empleadoId} titulo={pago.nombre} valor={plata(pago.total)} />
+              ))}
+            </Lista>
+          </div>
+          <div className="mt-3">
+            <Boton variante="secundario" icono={FileLock2} onClick={() => planilla('pagos')} deshabilitado={generando !== null}>
+              {generando === 'pagos' ? 'Armando…' : 'Ver las cuentas de pagos'}
+            </Boton>
+          </div>
+          <Subtitulo className="mt-1.5">Es solo para vos: no se le manda a {cliente}.</Subtitulo>
+        </>
+      )}
+
+      {semana.cobros.length > 0 && (
+        <Aviso icono={RefreshCw}>
+          ¿Cambiaste precios después de cargar esta semana?
+          <div className="-mb-2">
+            <BotonTexto onClick={actualizar}>Usar los valores de hoy</BotonTexto>
+          </div>
+        </Aviso>
+      )}
     </Pantalla>
   )
 }

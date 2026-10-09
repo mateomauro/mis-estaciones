@@ -1,5 +1,5 @@
 import { sumarDias } from './formato.ts'
-import type { PresenciaMia, Trabajo, Tramo } from './tipos.ts'
+import type { Gasto, PresenciaMia, Trabajo, Tramo } from './tipos.ts'
 
 /** Reglas que cambian entre lo que se le cobra al cliente (CR) y lo que se le paga a los empleados. */
 export type Regla = {
@@ -103,11 +103,19 @@ function intervalo(desde: string | undefined, hasta: string | undefined): [numbe
 const superposicion = (a: [number, number], b: [number, number]) =>
   Math.max(0, Math.min(a[1], b[1]) - Math.max(a[0], b[0]))
 
-/** Si él estuvo ese día en la estación. Lo cargado antes sin dato por día sigue la casilla "Fui yo". */
+/**
+ * Si él estuvo ese día en la estación. Mientras no contesta "¿Y vos fuiste?" no se suma nada de él.
+ * Lo cargado antes de preguntarlo en cada día sigue la casilla "Fui yo también" del trabajo.
+ */
 export function presenciaMia(trabajo: Trabajo, tramo: Tramo): PresenciaMia {
-  if (trabajo.tipo !== 'estacion' || !trabajo.trabajeYo) return 'no'
-  return tramo.yo ?? 'todo'
+  if (trabajo.tipo !== 'estacion') return 'no'
+  if (tramo.yo) return tramo.yo
+  if (tramo.yo === null) return 'no'
+  return trabajo.trabajeYo ? 'todo' : 'no'
 }
+
+/** Día de una estación en el que todavía no contestó si fue él. */
+export const faltaContestar = (trabajo: Trabajo, tramo: Tramo) => trabajo.tipo === 'estacion' && tramo.yo === null
 
 /** Minutos que estuvo él y cuántos de esos coinciden con el horario de la estación. */
 function minutosMios(trabajo: Trabajo, tramo: Tramo): { mios: number; enComun: number } {
@@ -313,9 +321,9 @@ export function semanaDe(trabajo: Trabajo): string {
   return inicioDeSemana(primera ?? trabajo.creada.slice(0, 10))
 }
 
-/** Lunes de cada semana con trabajos, de la más nueva a la más vieja. */
-export function listarSemanas(todos: Trabajo[]): string[] {
-  return [...new Set(todos.map(semanaDe))].sort().reverse()
+/** Lunes de cada semana con trabajos o gastos, de la más nueva a la más vieja. */
+export function listarSemanas(todos: Trabajo[], gastos: Gasto[] = []): string[] {
+  return [...new Set([...todos.map(semanaDe), ...gastos.map((g) => inicioDeSemana(g.fecha))])].sort().reverse()
 }
 
 /** Un día de un empleado, con cómo sale para cobrar (desde la hora 9) y para pagar (desde la hora 10). */
@@ -363,9 +371,14 @@ export type ResumenSemana = {
   porcentajeIva: number
   iva: number
   totalConIva: number
+  /** Gastos de la semana: se le cobran a CR aparte, sin IVA. */
+  gastos: Gasto[]
+  totalGastos: number
+  /** Trabajos con IVA + gastos: lo que CR le paga en total. */
+  totalACobrar: number
   pagos: PagoEmpleado[]
   totalPagos: number
-  /** Desglose de la ganancia (suman `ganancia`). */
+  /** Desglose de la ganancia (suman `ganancia`). Los gastos no cuentan: los pone él y se los devuelven. */
   tuParte: number
   plus: number
   diferenciaEmpleados: number
@@ -373,7 +386,7 @@ export type ResumenSemana = {
   ganancia: number
 }
 
-export function resumirSemana(inicio: string, todos: Trabajo[], porcentajeIva: number): ResumenSemana {
+export function resumirSemana(inicio: string, todos: Trabajo[], porcentajeIva: number, todosLosGastos: Gasto[] = []): ResumenSemana {
   const fin = sumarDias(inicio, 6)
   const trabajos = todos
     .filter((t) => semanaDe(t) === inicio)
@@ -384,6 +397,10 @@ export function resumirSemana(inicio: string, todos: Trabajo[], porcentajeIva: n
   const sumarCobros = (dato: (r: ResultadoTrabajo) => number) => cobros.reduce((s, c) => s + dato(c.resultado), 0)
 
   const subtotal = sumarCobros((r) => r.total)
+  const gastos = todosLosGastos
+    .filter((g) => inicioDeSemana(g.fecha) === inicio)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.creado.localeCompare(b.creado))
+  const totalGastos = gastos.reduce((s, g) => s + (g.monto || 0), 0)
   const iva = Math.round((subtotal * porcentajeIva) / 100)
 
   // A los chicos se les paga por semana: se suman las horas de toda la semana y recién ahí se hace la cuenta.
@@ -455,6 +472,9 @@ export function resumirSemana(inicio: string, todos: Trabajo[], porcentajeIva: n
     porcentajeIva,
     iva,
     totalConIva: subtotal + iva,
+    gastos,
+    totalGastos,
+    totalACobrar: subtotal + iva + totalGastos,
     pagos: listaPagos,
     totalPagos,
     tuParte: sumarCobros((r) => r.miParte.monto),

@@ -8,13 +8,16 @@ import {
   type Firestore,
   type FirestoreError,
 } from 'firebase/firestore'
-import type { Trabajo, Valores } from '../tipos.ts'
+import type { Gasto, Trabajo, Valores } from '../tipos.ts'
 
 export type EstadoNube = 'cargando' | 'guardado' | 'guardando' | 'sin-conexion' | 'error' | 'solo-local'
 
 export type Avisos = {
   alCambiarValores: (valores: Valores) => void
   alCambiarTrabajos: (trabajos: Trabajo[], listo: boolean) => void
+  alCambiarGastos: (gastos: Gasto[]) => void
+  /** No se pudieron leer los gastos (por ejemplo, si faltan las reglas en Firebase). El resto sigue andando. */
+  alFallarGastos: () => void
   /** La primera vez que responde la nube: dice si la cuenta ya tenía datos. */
   alConectar: (cuentaExiste: boolean) => void
   alCambiarEstado: (estado: EstadoNube) => void
@@ -36,7 +39,7 @@ const estable = (v: unknown) =>
 export const mismoDato = (a: unknown, b: unknown) => estable(a) === estable(b)
 
 /** Lo que llegó de la nube, con los cambios de este aparato que todavía no se confirmaron (null = borrado). */
-export function combinar(remotos: Trabajo[], locales: Map<string, Trabajo | null>): Trabajo[] {
+export function combinar<T extends { id: string }>(remotos: T[], locales: Map<string, T | null>): T[] {
   const resultado = remotos.filter((t) => !locales.has(t.id))
   for (const t of locales.values()) if (t) resultado.push(t)
   return resultado
@@ -47,6 +50,8 @@ export class Sincronizador {
   private valoresLocales: Valores | null = null
   private esperas = new Map<string, { timer: ReturnType<typeof setTimeout>; subir: () => Promise<void> }>()
   private remotos: Trabajo[] = []
+  private gastosLocales = new Map<string, Gasto | null>()
+  private gastosRemotos: Gasto[] = []
   private subiendoRemoto = false
   private conectado = { cuenta: undefined as boolean | undefined, trabajos: false, avisado: false }
   private huboError = false
@@ -64,7 +69,7 @@ export class Sincronizador {
     return doc(this.db, 'cuentas', this.clave)
   }
 
-  private coleccion(nombre: 'trabajos' | 'papelera') {
+  private coleccion(nombre: 'trabajos' | 'papelera' | 'gastos') {
     return collection(this.cuenta, nombre)
   }
 
@@ -115,6 +120,23 @@ export class Sincronizador {
       alFallar,
     )
 
+    const pararGastos = onSnapshot(
+      this.coleccion('gastos'),
+      (snap) => {
+        this.gastosRemotos = snap.docs.map((d) => d.data() as Gasto)
+        for (const [id, local] of this.gastosLocales) {
+          if (this.esperas.has(`gasto:${id}`)) continue
+          const remoto = this.gastosRemotos.find((g) => g.id === id)
+          if (local === null ? !remoto : remoto && mismoDato(remoto, local)) this.gastosLocales.delete(id)
+        }
+        this.avisos.alCambiarGastos(combinar(this.gastosRemotos, this.gastosLocales))
+      },
+      (error) => {
+        console.error('Nube (gastos):', error)
+        this.avisos.alFallarGastos()
+      },
+    )
+
     const alCambiarConexion = () => this.actualizarEstado()
     const alOcultar = () => {
       if (document.visibilityState === 'hidden') this.subirYa()
@@ -128,6 +150,7 @@ export class Sincronizador {
       this.subirYa()
       pararCuenta()
       pararTrabajos()
+      pararGastos()
       window.removeEventListener('online', alCambiarConexion)
       window.removeEventListener('offline', alCambiarConexion)
       document.removeEventListener('visibilitychange', alOcultar)
@@ -200,6 +223,25 @@ export class Sincronizador {
       lote.set(doc(this.coleccion('papelera'), trabajo.id), borrado)
     }
     lote.delete(doc(this.coleccion('trabajos'), trabajo.id))
+    lote.commit().catch((error) => console.error('Nube:', error))
+    this.actualizarEstado()
+  }
+
+  guardarGasto(gasto: Gasto) {
+    this.gastosLocales.set(gasto.id, gasto)
+    this.programar(`gasto:${gasto.id}`, () => {
+      const ultimo = this.gastosLocales.get(gasto.id)
+      return ultimo ? setDoc(doc(this.coleccion('gastos'), gasto.id), ultimo) : Promise.resolve()
+    })
+  }
+
+  borrarGasto(gasto: Gasto) {
+    const espera = this.esperas.get(`gasto:${gasto.id}`)
+    if (espera) clearTimeout(espera.timer)
+    this.esperas.delete(`gasto:${gasto.id}`)
+    this.gastosLocales.set(gasto.id, null)
+    const lote = writeBatch(this.db)
+    lote.delete(doc(this.coleccion('gastos'), gasto.id))
     lote.commit().catch((error) => console.error('Nube:', error))
     this.actualizarEstado()
   }

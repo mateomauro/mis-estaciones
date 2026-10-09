@@ -28,6 +28,13 @@
 
   --color-peligro: #b91c1c;
   --color-peligro-suave: #fef2f2;
+
+  /* La ganancia va siempre en verde (nunca en rojo). */
+  --color-ganancia: #15803d;
+  /* Avisos que solo informan: gris verdoso. El naranja queda para lo que hay que revisar. */
+  --color-info: #eef6f5;
+  --color-inactivo: #d6e3e0;
+  --color-tinta: #0d2b29;
 }
 
 html {
@@ -36,13 +43,33 @@ html {
 
 body {
   @apply bg-fondo text-texto antialiased;
+  font-size: 17px;
+  line-height: 1.5;
   touch-action: manipulation;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
 }
 
 h1,
 h2,
 h3 {
   font-family: var(--font-titulo);
+  text-wrap: balance;
+}
+
+/* La flecha de los plegables gira al abrirse. */
+details[open] > summary .flecha-plegado {
+  transform: rotate(180deg);
+}
+
+summary {
+  list-style: none;
+}
+
+summary::-webkit-details-marker {
+  display: none;
 }
 
 :focus-visible {
