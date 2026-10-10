@@ -156,14 +156,27 @@ test('Descuentos se restan del total', () => {
   assert.equal(r.total, r.totalEmpleados + r.miParte.monto - 10000)
 })
 
-test('Fábrica: si trabajan menos de 9 h se cobra el día completo, sin proporcional ni plus', () => {
+test('Fábrica: con menos de 9 h se cobra por hora, sin proporcional ni plus', () => {
   const f = trabajo({ tipo: 'fabrica', empleadoIds: ['emi'], conPlus: true, tramos: [tramo('2026-09-14', '07:00', '14:00')] })
   const r = calcularTrabajo(f, [f])
-  assert.equal(r.dias[0].relleno, 2 * 60)
-  assert.equal(r.empleados[0].total, 86567)
+  assert.equal(r.dias[0].relleno, 0)
+  assert.equal(r.empleados[0].total, Math.round((7 * 86567) / 9))
   assert.equal(r.miParte.monto, 0)
   assert.equal(r.plus, 0)
-  assert.equal(r.total, 86567)
+  assert.equal(r.total, r.empleados[0].total)
+})
+
+test('Fábrica: los ejemplos del papá (día a CR $83.200, pago $70.000)', () => {
+  const tomas = { ...valores, empleados: [{ id: 'tomas', nombre: 'Tomás', diaConveniencia: 83200, diaPago: 70000 }] }
+  const dia = (hasta: string) => {
+    const f = trabajo({ tipo: 'fabrica', empleadoIds: ['tomas'], valores: tomas, tramos: [tramo('2026-09-14', '06:00', hasta)] })
+    return [calcularTrabajo(f, [f]).total, calcularTrabajo(f, [f], REGLA_PAGO).total]
+  }
+  assert.deepEqual(dia('13:00'), [64711, 49000]) // 7 h
+  assert.deepEqual(dia('15:00'), [83200, 70000]) // 9 h
+  assert.deepEqual(dia('15:30'), [83200, 70000]) // 9,5 h: la media hora de más no se cobra
+  assert.deepEqual(dia('16:00'), [97067, 70000]) // 10 h: 1 extra a CR
+  assert.deepEqual(dia('18:00'), [124800, 91000]) // 12 h: 3 extras a CR, 2 al pagar
 })
 
 test('Fábrica: también hacen extras, y el sábado no se completa el día', () => {
@@ -183,9 +196,11 @@ test('Fábrica: si ese día también fueron a una estación, no se completa de m
   assert.equal(horas(calcularTrabajo(e, [f, e]).empleados[0].reparto.simples), 5)
 })
 
-test('Fábrica en el pago: se paga el día completo de 10 h', () => {
+test('Fábrica en el pago: con 9 h o más se paga el día completo de 10 h; con menos, por hora', () => {
   const f = trabajo({ tipo: 'fabrica', empleadoIds: ['emi'], tramos: [tramo('2026-09-14', '07:00', '14:00')] })
-  assert.equal(calcularTrabajo(f, [f], REGLA_PAGO).empleados[0].total, 83000)
+  assert.equal(calcularTrabajo(f, [f], REGLA_PAGO).empleados[0].total, 7 * 8300)
+  const completo = trabajo({ tipo: 'fabrica', empleadoIds: ['emi'], tramos: [tramo('2026-09-14', '06:00', '15:00')] })
+  assert.equal(calcularTrabajo(completo, [completo], REGLA_PAGO).empleados[0].total, 83000)
 })
 
 test('Viaje a medir: sus horas derecho y no cuenta para los empleados', () => {
@@ -343,4 +358,178 @@ test('Gastos: se le cobran a CR sin IVA y no cambian lo que le queda', () => {
   assert.equal(con.totalACobrar, sin.totalConIva + 62000)
   assert.equal(con.ganancia, sin.ganancia)
   assert.deepEqual(listarSemanas([], gastos), ['2026-09-14', '2026-09-07'])
+})
+
+// ——— Otra gente según el día ———
+
+const lineaDe = (r: ReturnType<typeof calcularTrabajo>, id: string) => r.empleados.find((l) => l.empleadoId === id)!
+
+test('Otra gente según el día: a cada uno solo lo suyo y el proporcional con los de cada día', () => {
+  const t = trabajo({
+    tramos: [
+      tramo('2026-09-14', '08:00', '17:00'),
+      { ...tramo('2026-09-15', '08:00', '17:00'), empleadoIds: ['emi', 'nico'] },
+    ],
+  })
+  const r = calcularTrabajo(t, [t])
+  assert.equal(r.empleados.length, 4)
+  assert.equal(lineaDe(r, 'emi').reparto.simples, 18 * 60)
+  assert.equal(lineaDe(r, 'naza').reparto.simples, 9 * 60)
+  // 9 h × 4 ÷ 5 + 9 h × 2 ÷ 3 = 7,2 + 6 = 13,2 h
+  assert.equal(r.miParte.tipo, 'proporcional')
+  if (r.miParte.tipo !== 'proporcional') return
+  assert.deepEqual(r.miParte.grupos, [
+    { empleados: 4, horas: 9 },
+    { empleados: 2, horas: 9 },
+  ])
+  cerca(r.miParte.horasProporcionales, 13.2, 1e-9)
+  assert.equal(r.miParte.monto, Math.round(13.2 * valores.horaMia))
+})
+
+test('Mismo día en dos horarios: 2 a la mañana y 4 a la tarde, cada horario con los suyos', () => {
+  const t = trabajo({
+    tramos: [
+      { ...tramo('2026-09-16', '07:00', '12:00'), empleadoIds: ['emi', 'nico'] },
+      tramo('2026-09-16', '12:00', '18:00'),
+    ],
+  })
+  const r = calcularTrabajo(t, [t])
+  // Emi hizo 11 h en el día: 9 simples + 2 extras. Naza fue solo a la tarde: 6 simples.
+  assert.deepEqual(lineaDe(r, 'emi').reparto, { simples: 9 * 60, al50: 2 * 60, al100: 0 })
+  assert.deepEqual(lineaDe(r, 'naza').reparto, { simples: 6 * 60, al50: 0, al100: 0 })
+  if (r.miParte.tipo !== 'proporcional') return assert.fail('tenía que ser proporcional')
+  cerca(r.miParte.horasProporcionales, (5 * 2) / 3 + (6 * 4) / 5, 1e-9)
+})
+
+test('Pago semanal: a cada uno solo se le cuentan los horarios en los que estuvo', () => {
+  const t = trabajo({
+    tramos: [tramo('2026-09-14', '08:00', '17:00'), { ...tramo('2026-09-15', '08:00', '17:00'), empleadoIds: ['emi'] }],
+  })
+  const semana = resumirSemana('2026-09-14', [t], 21)
+  const pago = (id: string) => semana.pagos.find((p) => p.empleadoId === id)!
+  assert.equal(pago('emi').dias.length, 2)
+  assert.equal(pago('nico').dias.length, 1)
+  assert.equal(pago('emi').reparto.simples, 18 * 60)
+})
+
+test('Fábrica en dos horarios: a cada uno se le cuenta lo que hizo él', () => {
+  const t = trabajo({
+    tipo: 'fabrica',
+    tramos: [{ ...tramo('2026-09-17', '06:00', '12:00'), empleadoIds: ['emi', 'nico'] }, tramo('2026-09-17', '12:00', '15:30')],
+  })
+  const pago = calcularTrabajo(t, [t], REGLA_PAGO)
+  // Emi hizo el día entero (9,5 h): se le paga el día completo. Naza solo la tarde (3,5 h): por hora.
+  assert.equal(lineaDe(pago, 'emi').reparto.simples, 10 * 60)
+  assert.equal(lineaDe(pago, 'naza').reparto.simples, 3.5 * 60)
+  const cobro = calcularTrabajo(t, [t])
+  assert.deepEqual(lineaDe(cobro, 'emi').reparto, { simples: 9 * 60, al50: 0, al100: 0 })
+  assert.equal(cobro.miParte.tipo, 'nada')
+})
+
+// ——— Gente de afuera y viaje cancelado ———
+
+test('Contratados: cuentan para el proporcional pero no suman plata en la estación', () => {
+  const t = trabajo({
+    tramos: [
+      {
+        ...tramo('2026-09-16', '08:00', '17:00'),
+        empleadoIds: ['tomas'],
+        externos: [
+          { id: 'x1', nombre: 'Luciano', origen: 'contratado' },
+          { id: 'x2', nombre: 'Juan', origen: 'contratado' },
+        ],
+      },
+    ],
+  })
+  const r = calcularTrabajo(t, [t])
+  assert.deepEqual(
+    r.empleados.map((l) => l.nombre),
+    ['Tomás'],
+  )
+  if (r.miParte.tipo !== 'proporcional') return assert.fail('tenía que ser proporcional')
+  // 9 h × 3 ÷ 4: Tomás + los dos contratados.
+  assert.deepEqual(r.miParte.grupos, [{ empleados: 3, horas: 9 }])
+  assert.equal(r.total, lineaDe(r, 'tomas').total + Math.round(((9 * 3) / 4) * valores.horaMia))
+})
+
+test('Viaje cancelado: medio día a CR (4,5 h) y medio día de pago (5 h); él no cobra nada', () => {
+  const t = trabajo({
+    trabajeYo: true,
+    tramos: [{ ...tramo('2026-09-14', '', ''), empleadoIds: ['emi'], cancelado: true, yo: 'todo' }],
+  })
+  const cobro = calcularTrabajo(t, [t])
+  assert.equal(lineaDe(cobro, 'emi').reparto.simples, 4.5 * 60)
+  assert.equal(lineaDe(cobro, 'emi').total, Math.round(86567 / 2))
+  assert.equal(cobro.miParte.monto, 0)
+  assert.equal(cobro.totalMinutos, 0)
+  const pago = calcularTrabajo(t, [t], REGLA_PAGO)
+  assert.equal(lineaDe(pago, 'emi').reparto.simples, 5 * 60)
+  assert.equal(lineaDe(pago, 'emi').total, Math.round(83000 / 2))
+})
+
+test('Viaje cancelado: no le gasta horas simples a otro horario de ese día', () => {
+  const t = trabajo({
+    tramos: [
+      { ...tramo('2026-09-14', '', ''), empleadoIds: ['emi'], cancelado: true },
+      { ...tramo('2026-09-14', '08:00', '17:00'), empleadoIds: ['emi'] },
+    ],
+  })
+  const r = calcularTrabajo(t, [t])
+  assert.deepEqual(lineaDe(r, 'emi').reparto, { simples: 4.5 * 60 + 9 * 60, al50: 0, al100: 0 })
+})
+
+test('Gente de CR: queda el registro de sus horas con la regla de CR, sin plata', () => {
+  const t = trabajo({
+    tramos: [{ ...tramo('2026-09-16', '07:00', '18:00'), externos: [{ id: 'x1', nombre: 'Pedro', origen: 'cr' }] }],
+  })
+  const r = calcularTrabajo(t, [t])
+  assert.equal(r.deCR.length, 1)
+  assert.equal(r.deCR[0].nombre, 'Pedro')
+  assert.deepEqual(r.deCR[0].reparto, { simples: 9 * 60, al50: 2 * 60, al100: 0 })
+  assert.ok(!r.empleados.some((l) => l.nombre === 'Pedro'))
+  if (r.miParte.tipo !== 'proporcional') return assert.fail('tenía que ser proporcional')
+  assert.deepEqual(r.miParte.grupos, [{ empleados: 5, horas: 11 }])
+})
+
+test('Horarios que se pisan: en ese rato se suman los de los dos (3 todo el día, Naza se suma a la noche)', () => {
+  const t = trabajo({
+    tramos: [
+      { ...tramo('2026-09-18', '07:30', '22:40'), empleadoIds: ['emi', 'nico', 'tomas'] },
+      { ...tramo('2026-09-18', '20:00', '22:40'), empleadoIds: ['naza'] },
+    ],
+  })
+  const r = calcularTrabajo(t, [t])
+  if (r.miParte.tipo !== 'proporcional') return assert.fail('tenía que ser proporcional')
+  // 12,5 h con 3 chicos y 2 h 40 min con 4.
+  assert.deepEqual(r.miParte.grupos, [
+    { empleados: 3, horas: 12.5 },
+    { empleados: 4, horas: 160 / 60 },
+  ])
+})
+
+test('Mientras él viaja, los chicos en la estación sin él suman su proporcional', () => {
+  const t = trabajo({
+    trabajeYo: true,
+    tramos: [
+      { ...tramo('2026-09-15', '07:20', '10:00'), yo: 'no' },
+      { ...tramo('2026-09-15', '05:00', '20:15'), empleadoIds: ['emi'], yo: 'todo' },
+    ],
+  })
+  const r = calcularTrabajo(t, [t])
+  if (r.miParte.tipo !== 'mixto') return assert.fail('tenía que ser mixto')
+  assert.equal(r.miParte.horasMias, 15.25)
+  assert.deepEqual(r.miParte.grupos, [{ empleados: 4, horas: 160 / 60 }])
+})
+
+test('Sus horas no se cuentan dos veces si anotó dos horarios que se pisan', () => {
+  const t = trabajo({
+    trabajeYo: true,
+    tramos: [
+      { ...tramo('2026-09-15', '08:00', '14:00'), yo: 'todo' },
+      { ...tramo('2026-09-15', '12:00', '18:00'), empleadoIds: ['emi'], yo: 'todo' },
+    ],
+  })
+  const r = calcularTrabajo(t, [t])
+  assert.equal(r.miParte.tipo, 'horas')
+  if (r.miParte.tipo === 'horas') assert.equal(r.miParte.horas, 10)
 })

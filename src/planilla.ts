@@ -5,7 +5,7 @@ import { jsPDF } from 'jspdf'
 import { autoTable, type RowInput, type UserOptions } from 'jspdf-autotable'
 import type { DiaCalculado, PagoEmpleado, Reparto, ResultadoTrabajo, ResumenSemana, TipoDia } from './calculos.ts'
 import { fechaCorta, horas, nombreDia, plata, plataExacta, rangoDeFechas } from './formato.ts'
-import type { Trabajo } from './tipos.ts'
+import type { Trabajo, Tramo } from './tipos.ts'
 import { nombreDelGasto } from './gastos.ts'
 import { nombreDelTrabajo, TIPOS } from './tiposDeTrabajo.ts'
 
@@ -133,13 +133,16 @@ class Documento {
 
 // ——— Planilla para el cliente ———
 
+/** Si el día de ese horario fue de semana, sábado, domingo o feriado. */
+const tipoDelDia = (tramo: Tramo, dias: DiaCalculado[]): TipoDia => dias.find((d) => d.tramo.id === tramo.id)?.tipo ?? 'semana'
+
 function filasDeHoras(dias: DiaCalculado[], conExtras: boolean): RowInput[] {
   return dias.map((dia) => {
     const { tramo } = dia
     const fila = [
       nombreDia(tramo.fecha) + (dia.tipo === 'feriado' ? ' (feriado)' : ''),
       fechaCorta(tramo.fecha),
-      `${tramo.desde || '--:--'} a ${tramo.hasta || '--:--'}`,
+      tramo.cancelado ? 'Viaje cancelado' : `${tramo.desde || '--:--'} a ${tramo.hasta || '--:--'}`,
       horas(dia.minutos) + (dia.relleno > 0 ? ` (se cobra ${horas(dia.minutos + dia.relleno)})` : ''),
     ]
     return conExtras ? [...fila, textoExtras(dia.tipo, dia.reparto)] : fila
@@ -177,6 +180,9 @@ export function crearPlanillaCliente(semana: ResumenSemana, { titular, cliente }
     d.titulo(nombreDelTrabajo(trabajo), TIPOS[trabajo.tipo].nombre)
     const personal = resultado.empleados.map((l) => l.nombre)
     if (resultado.dias.some((dia) => dia.minutosMios > 0)) personal.push(titular)
+    // La gente que no es de él, una vez cada uno.
+    const externos = new Map(trabajo.tramos.flatMap((t) => t.externos ?? []).map((x) => [x.nombre, x.origen]))
+    for (const [nombre, origen] of externos) personal.push(`${nombre} (${origen === 'cr' ? 'de CR' : 'contratado'})`)
     if (personal.length > 0) {
       d.y += 5
       d.nota(`Personal: ${personal.join(', ')}`)
@@ -200,6 +206,25 @@ export function crearPlanillaCliente(semana: ResumenSemana, { titular, cliente }
       headStyles: { ...estiloTabla.headStyles, fillColor: SUAVE },
       ...numerosDesde(1),
     })
+    // La gente que mandó CR: solo el registro de sus horas, para que CR haga su cuenta.
+    if (resultado.deCR.length > 0) {
+      d.y += 6
+      d.lugarPara(25)
+      d.titulo(`Personal enviado por ${cliente}`, `Lo paga ${cliente}`, 11)
+      d.y += 3
+      d.tabla({
+        head: [['Nombre', 'Día', 'Horario', 'Horas', 'Extras']],
+        body: resultado.deCR.map((p) => [
+          p.nombre,
+          `${nombreDia(p.tramo.fecha)} ${fechaCorta(p.tramo.fecha)}`,
+          `${p.tramo.desde || '--:--'} a ${p.tramo.hasta || '--:--'}`,
+          horas(p.minutos),
+          textoExtras(tipoDelDia(p.tramo, resultado.dias), p.reparto),
+        ]),
+        headStyles: { ...estiloTabla.headStyles, fillColor: SUAVE },
+        ...numerosDesde(3),
+      })
+    }
     d.y += 10
   }
 
@@ -208,16 +233,20 @@ export function crearPlanillaCliente(semana: ResumenSemana, { titular, cliente }
     d.lugarPara(35)
     d.titulo('Gastos', 'Sin IVA')
     d.y += 3
+    // Los primeros gastos se podían anotar con la estación; los de ahora, no.
+    const conLugar = semana.gastos.some((g) => g.lugar)
+    const columnas = conLugar ? 4 : 3
     d.tabla({
-      head: [['Día', 'Fecha', 'Gasto', 'Estación', 'Importe']],
+      head: [['Día', 'Fecha', 'Gasto', ...(conLugar ? ['Estación'] : []), 'Importe']],
       body: semana.gastos.map((g) => {
         const detalle = g.categoria !== 'otro' && g.nota.trim() ? ` (${g.nota.trim()})` : ''
-        return [nombreDia(g.fecha), fechaCorta(g.fecha), nombreDelGasto(g) + detalle, g.lugar || '-', pesos(g.monto)]
+        const fila = [nombreDia(g.fecha), fechaCorta(g.fecha), nombreDelGasto(g) + detalle]
+        return [...fila, ...(conLugar ? [g.lugar || '-'] : []), pesos(g.monto)]
       }),
-      foot: [[{ content: 'Total gastos', colSpan: 4 }, pesos(semana.totalGastos)]],
-      columnStyles: { 4: { cellWidth: 32 } },
+      foot: [[{ content: 'Total gastos', colSpan: columnas }, pesos(semana.totalGastos)]],
+      columnStyles: { [columnas]: { cellWidth: 32 } },
       headStyles: { ...estiloTabla.headStyles, fillColor: SUAVE },
-      ...numerosDesde(4),
+      ...numerosDesde(columnas),
     })
     d.y += 10
   }
@@ -280,7 +309,7 @@ function detalleDelEmpleado(d: Documento, pago: PagoEmpleado, cliente: string) {
       nombreDia(dia.tramo.fecha).slice(0, 3) + (dia.tipo === 'feriado' ? ' (fer.)' : ''),
       fechaCorta(dia.tramo.fecha),
       nombreDelTrabajo(dia.trabajo),
-      `${dia.tramo.desde} a ${dia.tramo.hasta}`,
+      dia.tramo.cancelado ? 'Viaje cancelado' : `${dia.tramo.desde} a ${dia.tramo.hasta}`,
       horas(dia.minutos) + (horasHechas(dia.cobro) > dia.minutos ? ' *' : ''),
       horas(dia.cobro.simples),
       textoExtras(dia.tipo, dia.cobro),
@@ -302,7 +331,10 @@ function detalleDelEmpleado(d: Documento, pago: PagoEmpleado, cliente: string) {
   })
   if (hayRelleno) {
     d.y += 4
-    d.nota('* Día de fábrica: se completa el día entero (9 h para cobrar, 10 h para pagar) aunque hayan trabajado menos.')
+    d.nota(
+      '* Se cuenta más de lo trabajado: con 9 h o más en fábrica se paga el día completo de 10 h, ' +
+        'y el viaje cancelado es medio día (4,5 h para cobrar, 5 h para pagar).',
+    )
   }
   d.y += 3
 

@@ -1,12 +1,12 @@
-import { CalendarRange, Check, Plus, Receipt, Trash2, type LucideIcon } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
-import { inicioDeSemana, resumirSemana, semanaDe } from '../calculos.ts'
-import { estaVacio, useDatos } from '../datos.tsx'
+import { CalendarRange, Check, Plus, Receipt, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { inicioDeSemana, resumirSemana } from '../calculos.ts'
+import { useDatos } from '../datos.tsx'
 import { fechaCorta, hoy, nombreDia, nuevoId, plata, rangoDeFechas, sumarDias } from '../formato.ts'
 import { CATEGORIAS, nombreDelGasto } from '../gastos.ts'
 import { ir, volver } from '../navegacion.ts'
-import type { CategoriaGasto, Gasto, Trabajo } from '../tipos.ts'
-import { nombreCliente, nombreDelTrabajo } from '../tiposDeTrabajo.ts'
+import type { Gasto } from '../tipos.ts'
+import { nombreCliente } from '../tiposDeTrabajo.ts'
 import { Aviso, Boton, BotonTexto, CampoPlata, CampoTexto, estiloCampo, FilaEnlace, Pantalla, Tarjeta } from '../ui.tsx'
 import { EstadoGuardado } from './EstadoGuardado.tsx'
 
@@ -67,41 +67,6 @@ export function PantallaGastos({ inicio = inicioDeSemana(hoy()) }: { inicio?: st
   )
 }
 
-/** Estaciones y fábricas de la semana del gasto, para elegir de cuál fue. */
-function lugaresDeLaSemana(trabajos: Trabajo[], fecha: string): Trabajo[] {
-  const semana = inicioDeSemana(fecha)
-  return trabajos
-    .filter((t) => t.tipo !== 'medicion' && !estaVacio(t))
-    .filter((t) => semanaDe(t) === semana || t.tramos.some((x) => inicioDeSemana(x.fecha) === semana))
-    .sort((a, b) => nombreDelTrabajo(a).localeCompare(nombreDelTrabajo(b)))
-}
-
-function Pastilla({
-  activa,
-  icono: Icono,
-  onClick,
-  children,
-}: {
-  activa: boolean
-  icono?: LucideIcon
-  onClick: () => void
-  children: ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={activa}
-      onClick={onClick}
-      className={`flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border-2 px-4 text-base font-semibold transition-colors duration-150 ${
-        activa ? 'border-primario bg-primario text-white' : 'border-campo bg-superficie text-texto'
-      }`}
-    >
-      {Icono && <Icono className="size-5 shrink-0" aria-hidden />}
-      {children}
-    </button>
-  )
-}
-
 /** Anotar o corregir un gasto. Se guarda solo apenas tiene el monto. */
 export function PantallaGasto({ id, fecha }: { id?: string; fecha?: string }) {
   const { gastos, listo } = useDatos()
@@ -117,44 +82,32 @@ export function PantallaGasto({ id, fecha }: { id?: string; fecha?: string }) {
 }
 
 function FormularioGasto({ existente, fecha }: { existente?: Gasto; fecha?: string }) {
-  const { trabajos, gastos, fallanGastos, guardarGasto, borrarGasto } = useDatos()
-  // Mientras no elige en qué fue, queda sin categoría (se guarda como "Otro" por las dudas).
-  const [borrador, setBorrador] = useState<Omit<Gasto, 'categoria'> & { categoria: CategoriaGasto | null }>(
+  const { gastos, fallanGastos, guardarGasto, borrarGasto } = useDatos()
+  const [borrador, setBorrador] = useState<Gasto>(
     () =>
       existente ?? {
         id: nuevoId(),
         fecha: fecha ?? hoy(),
         monto: 0,
-        categoria: null,
+        categoria: 'otro',
         nota: '',
         trabajoId: null,
         lugar: '',
         creado: new Date().toISOString(),
       },
   )
-  const [faltaCategoria, setFaltaCategoria] = useState(false)
 
-  const cambiar = (cambios: Partial<typeof borrador>) => {
+  const cambiar = (cambios: Partial<Gasto>) => {
     const nuevo = { ...borrador, ...cambios }
     setBorrador(nuevo)
-    if (cambios.categoria) setFaltaCategoria(false)
-    if (nuevo.monto > 0) guardarGasto({ ...nuevo, categoria: nuevo.categoria ?? 'otro' })
+    if (nuevo.monto > 0) guardarGasto(nuevo)
     // Sin monto no hay gasto: si ya estaba guardado, se quita.
     else if (gastos.some((g) => g.id === nuevo.id)) borrarGasto(nuevo.id)
   }
 
-  const lugares = lugaresDeLaSemana(trabajos, borrador.fecha)
-  const elegido = trabajos.find((t) => t.id === borrador.trabajoId)
-  if (elegido && !lugares.includes(elegido)) lugares.unshift(elegido)
   const semana = inicioDeSemana(borrador.fecha)
-
-  const listoGasto = () => {
-    if (borrador.monto > 0 && !borrador.categoria) {
-      setFaltaCategoria(true)
-      return
-    }
-    volver()
-  }
+  // Los primeros gastos se anotaban eligiendo con botones: se ve en qué fue y la nota aparte.
+  const conBoton = borrador.categoria !== 'otro'
 
   const quitar = () => {
     if (!confirm(`¿Quitar el gasto de ${plata(borrador.monto)}?`)) return
@@ -162,39 +115,18 @@ function FormularioGasto({ existente, fecha }: { existente?: Gasto; fecha?: stri
     volver()
   }
 
-  const elegirLugar = (trabajo: Trabajo | null) =>
-    cambiar({ trabajoId: trabajo?.id ?? null, lugar: trabajo ? nombreDelTrabajo(trabajo) : '' })
-
   return (
     <Pantalla titulo={existente ? 'Corregir el gasto' : 'Anotar un gasto'} etiqueta={{ icono: Receipt, texto: 'Gasto en efectivo' }} volver>
       {fallanGastos && <AvisoSinGastos />}
       <Tarjeta>
         <CampoPlata etiqueta="¿Cuánto gastaste?" valor={borrador.monto} alCambiar={(monto) => cambiar({ monto })} />
-
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-base font-semibold">¿En qué?</legend>
-          {faltaCategoria && <Aviso tipo="atencion">Elegí en qué fue el gasto.</Aviso>}
-          <div className="flex flex-wrap gap-2">
-            {(Object.keys(CATEGORIAS) as CategoriaGasto[]).map((clave) => (
-              <Pastilla
-                key={clave}
-                activa={borrador.categoria === clave}
-                icono={CATEGORIAS[clave].icono}
-                onClick={() => cambiar({ categoria: clave })}
-              >
-                {CATEGORIAS[clave].nombre}
-              </Pastilla>
-            ))}
-          </div>
-        </fieldset>
-
+        {conBoton && <p className="text-base">En qué: {nombreDelGasto(borrador)}</p>}
         <CampoTexto
-          etiqueta={borrador.categoria === 'otro' ? '¿Qué fue?' : 'Nota (si querés)'}
+          etiqueta={conBoton ? 'Nota (si querés)' : '¿Qué fue?'}
           valor={borrador.nota}
-          ejemplo={borrador.categoria === 'otro' ? 'Ej: estacionamiento' : 'Ej: tornillos para el mueble'}
+          ejemplo="Ej: nafta, almuerzo, Luciano"
           alCambiar={(nota) => cambiar({ nota })}
         />
-
         <label className="flex flex-col gap-1">
           <span className="text-base font-semibold">¿Cuándo?</span>
           <input
@@ -205,25 +137,9 @@ function FormularioGasto({ existente, fecha }: { existente?: Gasto; fecha?: stri
           />
           <span className="text-sm text-texto-suave">Va en la semana {rangoDeFechas(semana, sumarDias(semana, 6))}.</span>
         </label>
-
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-base font-semibold">
-            ¿De qué estación? <span className="font-normal text-texto-suave">(si querés)</span>
-          </legend>
-          <div className="flex flex-wrap gap-2">
-            {lugares.map((t) => (
-              <Pastilla key={t.id} activa={borrador.trabajoId === t.id} onClick={() => elegirLugar(t)}>
-                {nombreDelTrabajo(t)}
-              </Pastilla>
-            ))}
-            <Pastilla activa={!borrador.trabajoId} onClick={() => elegirLugar(null)}>
-              Ninguna en particular
-            </Pastilla>
-          </div>
-        </fieldset>
       </Tarjeta>
 
-      <Boton icono={Check} onClick={listoGasto}>
+      <Boton icono={Check} onClick={volver}>
         Listo
       </Boton>
       <div className="-mt-2 flex justify-center">

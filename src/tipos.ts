@@ -39,6 +39,25 @@ export type Tramo = {
   yo?: PresenciaMia | null
   yoDesde?: string
   yoHasta?: string
+  /**
+   * Quiénes trabajaron en este horario, si no fueron los de siempre de la estación.
+   * Sin el dato, son los del trabajo (`empleadoIds`).
+   */
+  empleadoIds?: string[]
+  /** Gente que no es de él: contratados por ese día (los paga él y van como gasto) o mandados por CR. */
+  externos?: Externo[]
+  /** Viaje cancelado: a los empleados se les cobra y se les paga medio día; él no cobra nada. */
+  cancelado?: boolean
+}
+
+/**
+ * Alguien que trabajó en un horario sin ser empleado de él. No suma plata en la estación
+ * (al contratado lo paga él y lo anota como gasto; al de CR lo paga CR), pero cuenta para su proporcional.
+ */
+export type Externo = {
+  id: string
+  nombre: string
+  origen: 'contratado' | 'cr'
 }
 
 export type PresenciaMia = 'no' | 'todo' | 'parte'
@@ -74,7 +93,7 @@ export type Trabajo = {
   creada: string
 }
 
-export type CategoriaGasto = 'nafta' | 'comida' | 'materiales' | 'herramientas' | 'peaje' | 'otro'
+export type CategoriaGasto = 'nafta' | 'comida' | 'materiales' | 'herramientas' | 'peaje' | 'personal' | 'otro'
 
 /** Lo que él pone en efectivo y después le cobra a CR (sin IVA). */
 export type Gasto = {
