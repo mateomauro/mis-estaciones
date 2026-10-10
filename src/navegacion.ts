@@ -12,12 +12,6 @@ export const ir = (ruta: string) => {
   window.location.hash = ruta
 }
 
-/** Cambia de pantalla sin dejar la actual en el "atrás" (por ejemplo, después de crear una estación). */
-export const reemplazar = (ruta: string) => {
-  haciaAdelante = true
-  window.location.replace(`#${ruta}`)
-}
-
 /** Vuelve a la pantalla anterior; si se abrió la app directo en esta pantalla, va al inicio. */
 export const volver = () => {
   if (navegoDentro) window.history.back()

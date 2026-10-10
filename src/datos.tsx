@@ -82,11 +82,8 @@ type ContextoDatos = Datos & {
   fallanGastos: boolean
   clave: string | null
   guardarValores: (valores: Valores) => void
-  /** Crea un trabajo con los valores de hoy. El viaje a medir arranca con el día de hoy; lo demás, sin días. */
-  crearTrabajo: (tipo: TipoTrabajo, datos?: Partial<Trabajo>) => string
+  crearTrabajo: (tipo: TipoTrabajo) => string
   guardarTrabajo: (trabajo: Trabajo) => void
-  /** Cambia un trabajo partiendo de lo último que haya (sirve para deshacer). */
-  actualizarTrabajo: (id: string, cambio: (trabajo: Trabajo) => Trabajo) => void
   /** Lo borra dejando una copia en la papelera. */
   borrarTrabajo: (id: string) => void
   limpiarVacios: () => void
@@ -188,7 +185,7 @@ export function DatosProvider({ clave, children }: { clave: string | null; child
     clave,
     guardarValores,
     guardarTrabajo,
-    crearTrabajo: (tipo, datos) => {
+    crearTrabajo: (tipo) => {
       const { valores } = datosRef.current
       const nuevo: Trabajo = {
         id: nuevoId(),
@@ -197,18 +194,13 @@ export function DatosProvider({ clave, children }: { clave: string | null; child
         empleadoIds: tipo === 'medicion' ? [] : valores.empleados.map((e) => e.id),
         trabajeYo: false,
         conPlus: false,
-        tramos: tipo === 'medicion' ? [{ id: nuevoId(), fecha: hoy(), desde: '', hasta: '', feriado: false }] : [],
+        tramos: [{ id: nuevoId(), fecha: hoy(), desde: '', hasta: '', feriado: false }],
         descuentos: [],
         valores: structuredClone(valores),
         creada: new Date().toISOString(),
-        ...datos,
       }
       guardarTrabajo(nuevo)
       return nuevo.id
-    },
-    actualizarTrabajo: (id, cambio) => {
-      const trabajo = datosRef.current.trabajos.find((t) => t.id === id)
-      if (trabajo) guardarTrabajo(cambio(trabajo))
     },
     borrarTrabajo: (id) => quitar(datosRef.current.trabajos.filter((t) => t.id === id), true),
     limpiarVacios: () => quitar(datosRef.current.trabajos.filter(estaVacio), false),

@@ -1,354 +1,436 @@
-import { ArrowRight, Check, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
-import { calcularTrabajo, inicioDeSemana, semanaDe } from '../calculos.ts'
+import { CalendarDays, Check, Circle, Plus, RefreshCw, Trash2, Wallet } from 'lucide-react'
+import {
+  calcularTrabajo,
+  diaDeLaSemana,
+  inicioDeSemana,
+  presenciaMia,
+  type DiaCalculado,
+  type ResultadoTrabajo,
+} from '../calculos.ts'
 import { useDatos } from '../datos.tsx'
-import { conY, fechaConDia, fechaCorta, horas, hoy, nombreDia, nuevoId, plata, rangoDeFechas, sumarDias } from '../formato.ts'
-import { ir, reemplazar, volver } from '../navegacion.ts'
-import { useAvisar } from '../toast.tsx'
-import type { Trabajo, Tramo } from '../tipos.ts'
+import { horas, hoy, nombreDia, nuevoId, numero, plata, sumarDias } from '../formato.ts'
+import { ir, volver } from '../navegacion.ts'
+import type { Descuento, PresenciaMia, Trabajo, Tramo } from '../tipos.ts'
 import { nombreCliente, nombreDelTrabajo, TIPOS } from '../tiposDeTrabajo.ts'
+import { EstadoGuardado } from './EstadoGuardado.tsx'
 import {
   Aviso,
   Boton,
+  BotonIcono,
   BotonTexto,
-  CambiarFecha,
   CampoHora,
+  CampoPlata,
   CampoTexto,
-  Lista,
+  Casilla,
+  Destacado,
+  estiloCampo,
+  Fila,
   Opciones,
   Pantalla,
-  Plegado,
-  Renglon,
-  Resultado,
-  Subtitulo,
-  Titulo,
+  Tarjeta,
 } from '../ui.tsx'
-import { EstadoGuardado } from './EstadoGuardado.tsx'
-import {
-  CuentasDelTrabajo,
-  Descuentos,
-  diaParaCargar,
-  QuienesFueron,
-  textoHoras,
-  textoPresencia,
-  tieneHorario,
-} from './partesTrabajo.tsx'
 
-type Fin = 'no' | 'terminada' | 'reparacion'
-
-/** Lo que dice "¿Terminaron acá?". Lo cargado antes de la pregunta se toma por el plus. */
-function finDe(t: Trabajo): Fin {
-  const cerrada = t.cerrada ?? t.conPlus
-  if (!cerrada) return 'no'
-  return t.conPlus ? 'terminada' : 'reparacion'
+function detalleDelDia(dia: DiaCalculado, conExtras: boolean) {
+  if (dia.minutos === 0) return 'Completá el horario'
+  const total = `${horas(dia.minutos)} h`
+  if (!conExtras) return total
+  if (dia.tipo === 'domingo') return `${total} · domingo, todo al doble`
+  if (dia.tipo === 'sabado') return `${total} · sábado, todo al 1,5`
+  if (dia.tipo === 'feriado') return `${total} · feriado, todo al 1,5`
+  if (dia.relleno > 0) return `${total} · se cobra el día completo`
+  if (dia.reparto.al50 === 0) return `${total} · sin extras`
+  return `${total} · ${horas(dia.reparto.simples)} simples + ${horas(dia.reparto.al50)} extras`
 }
 
-function useBorrar(trabajo: Trabajo, que: string) {
-  const { borrarTrabajo, recuperarTrabajo } = useDatos()
-  const avisar = useAvisar()
-  return () => {
-    const nombre = nombreDelTrabajo(trabajo)
-    if (!confirm(`¿Borrar ${que} “${nombre}” con todos sus días?`)) return
-    borrarTrabajo(trabajo.id)
-    volver()
-    avisar({
-      texto: `Se borró ${nombre}`,
-      deshacer: () => recuperarTrabajo({ ...trabajo, borradoEl: new Date().toISOString() }),
-    })
-  }
-}
-
-function useUsarValoresDeHoy(trabajo: Trabajo) {
-  const { valores, guardarTrabajo } = useDatos()
-  return () => {
-    if (!confirm('¿Usar los valores y precios de hoy en este trabajo?')) return
-    guardarTrabajo({ ...trabajo, valores: structuredClone(valores) })
-  }
-}
-
-// ——— Estación y fábrica ———
-
-function PantallaEstacion({ trabajo }: { trabajo: Trabajo }) {
-  const { trabajos, guardarTrabajo } = useDatos()
-  const usarValoresDeHoy = useUsarValoresDeHoy(trabajo)
-  const esEstacion = trabajo.tipo === 'estacion'
-  const borrar = useBorrar(trabajo, esEstacion ? 'la estación' : 'la fábrica')
-  const resultado = calcularTrabajo(trabajo, trabajos)
-  const cambiar = (cambios: Partial<Trabajo>) => guardarTrabajo({ ...trabajo, ...cambios })
-  const cliente = nombreCliente(trabajo.valores)
-  const semana = semanaDe(trabajo)
-  const fueron = trabajo.valores.empleados.filter((e) => trabajo.empleadoIds.includes(e.id)).map((e) => e.nombre)
-  const conExtras = resultado.empleados.length > 0
-  const fin = finDe(trabajo)
-
+function FilaDia({
+  dia,
+  conExtras,
+  presencia,
+  otrosTrabajos,
+  alCambiar,
+  alQuitar,
+}: {
+  dia: DiaCalculado
+  conExtras: boolean
+  /** Si fue él a la estación: cómo estuvo ese día. Sin valor, no se pregunta. */
+  presencia: PresenciaMia | null
+  otrosTrabajos: string[]
+  alCambiar: (cambios: Partial<Tramo>) => void
+  alQuitar: () => void
+}) {
+  const { tramo } = dia
+  const numeroDia = diaDeLaSemana(tramo.fecha)
+  const pasaMedianoche = tramo.desde && tramo.hasta && tramo.hasta < tramo.desde
   return (
-    <Pantalla
-      volver="Volver"
-      titulo={nombreDelTrabajo(trabajo)}
-      subtitulo={`${esEstacion ? '' : 'Fábrica · '}Semana ${rangoDeFechas(semana, sumarDias(semana, 6))} · ${
-        fueron.length > 0 ? `fueron ${conY(fueron)}` : 'sin empleados'
-      }`}
-      solapa="ninguna"
-    >
-      <Titulo>Días</Titulo>
-      {resultado.dias.length === 0 ? (
-        <Subtitulo>Todavía no cargaste ningún día.</Subtitulo>
-      ) : (
-        <Lista>
-          {resultado.dias.map((dia) => {
-            const { tramo } = dia
-            const titulo = `${nombreDia(tramo.fecha)} ${fechaCorta(tramo.fecha)}`
-            const abrir = () => ir(`/trabajo/${trabajo.id}/dia/${tramo.id}`)
-            if (!tieneHorario(tramo)) {
-              return <Renglon key={tramo.id} titulo={titulo} detalle="Falta cargar el horario" falta accion="Cargar" onClick={abrir} />
-            }
-            const yo = textoPresencia(trabajo, dia)
-            const partes = [`${tramo.desde} a ${tramo.hasta}`, `${horas(dia.minutos)} h`]
-            if (dia.tipo === 'feriado') partes.push('feriado')
-            if (yo) partes.push(yo)
-            return (
-              <Renglon
-                key={tramo.id}
-                titulo={titulo}
-                detalle={<span className="tabular-nums">{partes.join(' · ')}</span>}
-                falta={tramo.yo === null && esEstacion}
-                onClick={abrir}
-              />
-            )
-          })}
-        </Lista>
-      )}
-      <div className="mt-3">
-        <Boton variante="secundario" icono={Plus} onClick={() => ir(`/trabajo/${trabajo.id}/nuevo-dia/${diaParaCargar(trabajo)}`)}>
-          Cargar otro día
-        </Boton>
+    <div className="flex flex-col gap-2 border-t border-borde pt-3">
+      <div className="flex items-center gap-2">
+        <label htmlFor={`fecha-${tramo.id}`} className="w-24 shrink-0 text-base font-semibold">
+          {nombreDia(tramo.fecha)}
+        </label>
+        <input
+          id={`fecha-${tramo.id}`}
+          type="date"
+          className={`${estiloCampo} min-w-0 flex-1`}
+          value={tramo.fecha}
+          onChange={(e) => e.target.value && alCambiar({ fecha: e.target.value })}
+        />
       </div>
-      {new Set(trabajo.tramos.map((t) => inicioDeSemana(t.fecha))).size > 1 && (
+      <div className="grid grid-cols-2 gap-2">
+        <CampoHora etiqueta="Desde" valor={tramo.desde} alCambiar={(desde) => alCambiar({ desde })} />
+        <CampoHora etiqueta="Hasta" valor={tramo.hasta} alCambiar={(hasta) => alCambiar({ hasta })} />
+      </div>
+      {presencia && (
+        <div className="flex flex-col gap-2 rounded-lg bg-fondo p-2">
+          <span className="text-sm font-semibold">¿Y vos ese día?</span>
+          <Opciones
+            etiqueta="¿Y vos ese día?"
+            valor={presencia}
+            opciones={[
+              ['no', 'No fui'],
+              ['todo', 'Todo el día'],
+              ['parte', 'Un rato'],
+            ]}
+            alCambiar={(yo) => alCambiar({ yo })}
+          />
+          {presencia === 'parte' && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <CampoHora etiqueta="Llegaste" valor={tramo.yoDesde ?? ''} alCambiar={(yoDesde) => alCambiar({ yoDesde })} />
+                <CampoHora etiqueta="Te fuiste" valor={tramo.yoHasta ?? ''} alCambiar={(yoHasta) => alCambiar({ yoHasta })} />
+              </div>
+              <p className={`text-sm ${dia.minutosMios > 0 ? 'text-texto-suave' : 'text-aviso-texto'}`}>
+                {dia.minutosMios > 0 ? `Estuviste ${horas(dia.minutosMios)} h` : 'Cargá a qué hora llegaste y te fuiste'}
+              </p>
+            </>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <span className={`min-w-0 flex-1 text-base font-semibold ${dia.minutos === 0 ? 'text-aviso-texto' : ''}`}>
+          {detalleDelDia(dia, conExtras)}
+        </span>
+        {numeroDia >= 1 && numeroDia <= 5 && (
+          <Casilla chica marcada={tramo.feriado} alCambiar={(feriado) => alCambiar({ feriado })}>
+            Feriado
+          </Casilla>
+        )}
+        <BotonIcono icono={Trash2} etiqueta="Quitar este día" peligro onClick={alQuitar} />
+      </div>
+      {dia.minutos > 18 * 60 && (
+        <Aviso tipo="atencion">Son más de 18 horas en el día. Revisá si las horas están bien.</Aviso>
+      )}
+      {pasaMedianoche && dia.minutos <= 18 * 60 && (
+        <p className="text-sm text-texto-suave">Terminó pasada la medianoche: cuenta para este día.</p>
+      )}
+      {otrosTrabajos.length > 0 && (
         <Aviso tipo="atencion">
-          Hay días de dos semanas distintas. Conviene cargar cada semana aparte (con “Seguir esta semana”, desde Hoy), así
-          la cuenta de cada semana da bien.
+          Ese día también estuvieron en {otrosTrabajos.join(' y ')}: las horas simples se cuentan sumando todo el día.
         </Aviso>
       )}
-
-      <Titulo>Cobro a {cliente}</Titulo>
-      <Plegado titulo="Total sin IVA" derecha={plata(resultado.total)}>
-        <CuentasDelTrabajo trabajo={trabajo} resultado={resultado} alUsarValoresDeHoy={usarValoresDeHoy} />
-      </Plegado>
-      <Subtitulo className="mt-1.5">Tocá para ver las cuentas de cada uno.</Subtitulo>
-      {!conExtras && fueron.length === 0 && trabajo.tipo === 'fabrica' && (
-        <Aviso tipo="atencion">Marcá quiénes fueron en “Datos de la fábrica”.</Aviso>
-      )}
-
-      {esEstacion && (
-        <>
-          <Titulo>¿Terminaron acá?</Titulo>
-          <Opciones<Fin>
-            etiqueta="¿Terminaron acá?"
-            valor={fin}
-            alCambiar={(nuevo) => cambiar({ cerrada: nuevo !== 'no', conPlus: nuevo === 'terminada' })}
-            opciones={[
-              { clave: 'no', texto: 'Todavía no' },
-              { clave: 'terminada', texto: 'Sí, terminada', aclaracion: `suma el plus de ${plata(trabajo.valores.plus)}` },
-              { clave: 'reparacion', texto: 'Sí, era una reparación', aclaracion: 'sin plus' },
-            ]}
-          />
-        </>
-      )}
-
-      <div className="mt-4">
-        <Plegado titulo="Descuentos" derecha={resultado.descuentos > 0 ? `− ${plata(resultado.descuentos)}` : undefined}>
-          <Descuentos descuentos={trabajo.descuentos} alCambiar={(descuentos) => cambiar({ descuentos })} />
-        </Plegado>
-        <Plegado titulo={esEstacion ? 'Datos de la estación' : 'Datos de la fábrica'}>
-          <CampoTexto
-            etiqueta={TIPOS[trabajo.tipo].campoNombre}
-            valor={trabajo.nombre}
-            ejemplo={TIPOS[trabajo.tipo].ejemplo}
-            alCambiar={(nombre) => cambiar({ nombre })}
-          />
-          <p className="mt-[18px] mb-1.5 text-[1.08rem] font-bold">¿Quiénes fueron?</p>
-          <QuienesFueron
-            empleados={trabajo.valores.empleados}
-            ids={trabajo.empleadoIds}
-            alCambiar={(empleadoIds) => cambiar({ empleadoIds })}
-          />
-        </Plegado>
-      </div>
-
-      <div className="mt-3">
-        <BotonTexto icono={Trash2} tono="suave" onClick={borrar}>
-          {esEstacion ? 'Borrar esta estación' : 'Borrar esta fábrica'}
-        </BotonTexto>
-      </div>
-    </Pantalla>
+    </div>
   )
 }
 
-// ——— Viaje a medir ———
-
-function PantallaViaje({ trabajo }: { trabajo: Trabajo }) {
-  const { trabajos, guardarTrabajo } = useDatos()
-  const avisar = useAvisar()
-  const usarValoresDeHoy = useUsarValoresDeHoy(trabajo)
-  const borrar = useBorrar(trabajo, 'el viaje a medir')
-  const resultado = calcularTrabajo(trabajo, trabajos)
-  const cambiar = (cambios: Partial<Trabajo>) => guardarTrabajo({ ...trabajo, ...cambios })
-  const cambiarTramo = (id: string, cambios: Partial<Tramo>) =>
-    cambiar({ tramos: trabajo.tramos.map((t) => (t.id === id ? { ...t, ...cambios } : t)) })
-  const horaMia = trabajo.valores.horaMia
-  const varios = resultado.dias.length > 1
-
-  const otroDia = () => {
-    const ultimo = resultado.dias.at(-1)?.tramo.fecha
-    const fecha = ultimo ? sumarDias(ultimo, 1) : hoy()
-    cambiar({ tramos: [...trabajo.tramos, { id: nuevoId(), fecha, desde: '', hasta: '', feriado: false }] })
-  }
-
-  const listo = () => {
-    if (resultado.totalMinutos > 0) avisar({ texto: `Viaje a medir cargado: ${plata(resultado.total)}` })
-    volver()
-  }
+function Resultado({
+  trabajo,
+  resultado,
+  cambiar,
+}: {
+  trabajo: Trabajo
+  resultado: ResultadoTrabajo
+  cambiar: (cambios: Partial<Trabajo>) => void
+}) {
+  const { reparto, miParte } = resultado
+  const horaMia = plata(trabajo.valores.horaMia)
+  const cambiarDescuento = (descuentoId: string, cambios: Partial<Descuento>) =>
+    cambiar({ descuentos: trabajo.descuentos.map((d) => (d.id === descuentoId ? { ...d, ...cambios } : d)) })
 
   return (
-    <Pantalla
-      volver="Volver"
-      titulo="Viaje a medir"
-      subtitulo={varios ? undefined : resultado.dias[0] && fechaConDia(resultado.dias[0].tramo.fecha)}
-      barra={
-        <>
-          <Boton icono={Check} onClick={listo}>
-            Listo
-          </Boton>
-          <EstadoGuardado enBarra />
-        </>
-      }
-    >
-      {!varios && resultado.dias[0] && (
-        <div className="mt-2">
-          <CambiarFecha fecha={resultado.dias[0].tramo.fecha} alCambiar={(fecha) => cambiarTramo(resultado.dias[0].tramo.id, { fecha })} />
+    <Tarjeta titulo={`Cobro a ${nombreCliente(trabajo.valores)}`} icono={Wallet}>
+      <p className="text-base text-texto-suave">
+        {horas(resultado.totalMinutos)} h trabajadas
+        {resultado.empleados.length > 0 && ` · ${horas(reparto.al50 + reparto.al100)} h extras`}
+        {reparto.al100 > 0 && ` (${horas(reparto.al100)} al doble)`}
+      </p>
+
+      {resultado.empleados.length > 0 && (
+        <div className="flex flex-col gap-2 border-t border-borde pt-3">
+          {resultado.empleados.map((linea) => (
+            <div key={linea.empleadoId}>
+              <Fila etiqueta={<span className="font-semibold">{linea.nombre}</span>} valor={plata(linea.total)} />
+              <p className="text-sm text-texto-suave">
+                {plata(linea.montoSimples)} simples + {plata(linea.montoExtras)} extras
+              </p>
+            </div>
+          ))}
+          <Fila etiqueta="Total empleados" valor={plata(resultado.totalEmpleados)} fuerte />
         </div>
       )}
-      <CampoTexto
-        etiqueta="¿A qué estación fuiste?"
-        valor={trabajo.nombre}
-        ejemplo={TIPOS.medicion.ejemplo}
-        alCambiar={(nombre) => cambiar({ nombre })}
-      />
 
-      {resultado.dias.map((dia) => (
-        <section key={dia.tramo.id} className={varios ? 'mt-6 border-t border-borde pt-1' : ''}>
-          {varios && (
-            <>
-              <Titulo>{fechaConDia(dia.tramo.fecha)}</Titulo>
-              <CambiarFecha fecha={dia.tramo.fecha} alCambiar={(fecha) => cambiarTramo(dia.tramo.id, { fecha })} />
-            </>
-          )}
-          <CampoHora
-            etiqueta="¿A qué hora saliste?"
-            valor={dia.tramo.desde}
-            alCambiar={(desde) => cambiarTramo(dia.tramo.id, { desde })}
+      {miParte.tipo === 'mixto' && (
+        <div className="flex flex-col gap-2 border-t border-borde pt-3">
+          <div>
+            <Fila etiqueta={<span className="font-semibold">Tus horas</span>} valor={plata(miParte.montoHoras)} />
+            <p className="text-sm text-texto-suave">
+              {numero(miParte.horasMias)} h que estuviste × {horaMia}
+            </p>
+          </div>
+          <div>
+            <Fila etiqueta={<span className="font-semibold">Tu proporcional</span>} valor={plata(miParte.montoProporcional)} />
+            <p className="text-sm text-texto-suave">
+              {numero(miParte.horasSinMi)} h sin vos × {miParte.empleados} ÷ {miParte.empleados + 1} ={' '}
+              {numero(miParte.horasProporcionales)} h × {horaMia}
+            </p>
+          </div>
+          <Fila etiqueta="Tu parte" valor={plata(miParte.monto)} fuerte />
+        </div>
+      )}
+
+      {(miParte.tipo === 'horas' || miParte.tipo === 'proporcional') && (
+        <div className="border-t border-borde pt-3">
+          <Fila
+            etiqueta={<span className="font-semibold">{miParte.tipo === 'proporcional' ? 'Tu proporcional' : 'Tus horas'}</span>}
+            valor={plata(miParte.monto)}
           />
-          <CampoHora
-            etiqueta="¿A qué hora volviste?"
-            valor={dia.tramo.hasta}
-            alCambiar={(hasta) => cambiarTramo(dia.tramo.id, { hasta })}
-          />
-          {dia.minutos > 0 && (
-            <Resultado>
-              {textoHoras(dia.minutos)} × tu hora = {plata(Math.round((dia.minutos / 60) * horaMia))}
-            </Resultado>
-          )}
-          {varios && (
-            <BotonTexto
-              icono={Trash2}
-              tono="peligro"
-              onClick={() => cambiar({ tramos: trabajo.tramos.filter((t) => t.id !== dia.tramo.id) })}
-            >
-              Quitar este día
-            </BotonTexto>
-          )}
-        </section>
-      ))}
+          <p className="text-sm text-texto-suave">
+            {miParte.tipo === 'proporcional'
+              ? `${numero(miParte.horas)} h × ${miParte.empleados} ÷ ${miParte.empleados + 1} = ${numero(miParte.horasProporcionales)} h × ${horaMia}`
+              : `${numero(miParte.horas)} h × ${horaMia}`}
+          </p>
+        </div>
+      )}
 
-      <div className="mt-3">
-        <BotonTexto icono={Plus} onClick={otroDia}>
-          Otro día de este viaje
-        </BotonTexto>
-      </div>
+      {trabajo.tipo === 'estacion' && (
+        <div className="flex flex-wrap items-center justify-between gap-x-3 border-t border-borde pt-2">
+          <Casilla chica marcada={trabajo.conPlus} alCambiar={(conPlus) => cambiar({ conPlus })}>
+            Estación terminada: plus
+          </Casilla>
+          <span className={`text-base tabular-nums ${trabajo.conPlus ? '' : 'text-texto-suave line-through'}`}>
+            {plata(trabajo.valores.plus)}
+          </span>
+        </div>
+      )}
 
-      <Titulo>Cobro a {nombreCliente(trabajo.valores)}</Titulo>
-      <Plegado titulo="Total sin IVA" derecha={plata(resultado.total)}>
-        <CuentasDelTrabajo trabajo={trabajo} resultado={resultado} alUsarValoresDeHoy={usarValoresDeHoy} />
-      </Plegado>
+      {trabajo.tipo !== 'medicion' && (
+        <div className="flex flex-col gap-2 border-t border-borde pt-2">
+          {trabajo.descuentos.map((descuento) => (
+            <div key={descuento.id} className="grid grid-cols-[minmax(0,1fr)_7.5rem_auto] items-end gap-2">
+              <CampoTexto
+                etiqueta="Descuento"
+                valor={descuento.detalle}
+                alCambiar={(detalle) => cambiarDescuento(descuento.id, { detalle })}
+                ejemplo="Motivo"
+              />
+              <CampoPlata
+                etiqueta="Monto"
+                valor={descuento.monto}
+                alCambiar={(monto) => cambiarDescuento(descuento.id, { monto })}
+              />
+              <BotonIcono
+                icono={Trash2}
+                etiqueta="Quitar descuento"
+                peligro
+                onClick={() => cambiar({ descuentos: trabajo.descuentos.filter((d) => d.id !== descuento.id) })}
+              />
+            </div>
+          ))}
+          <BotonTexto
+            icono={Plus}
+            onClick={() => cambiar({ descuentos: [...trabajo.descuentos, { id: nuevoId(), detalle: '', monto: 0 }] })}
+          >
+            Agregar descuento (si alguien se fue antes)
+          </BotonTexto>
+        </div>
+      )}
 
-      <div className="mt-3">
-        <BotonTexto icono={Trash2} tono="suave" onClick={borrar}>
-          Borrar este viaje
-        </BotonTexto>
-      </div>
-    </Pantalla>
+      <Destacado etiqueta="Total a cobrar" monto={resultado.total} />
+      <p className="-mt-1 text-sm text-texto-suave">Sin IVA. El IVA se suma en el resumen de la semana.</p>
+    </Tarjeta>
   )
 }
 
 export function PantallaTrabajo({ id }: { id: string }) {
-  const { trabajos, listo } = useDatos()
+  const { trabajos, valores, listo, guardarTrabajo, borrarTrabajo } = useDatos()
   const trabajo = trabajos.find((t) => t.id === id)
 
-  if (!trabajo) {
+  if (!trabajo && !listo) {
     return (
-      <Pantalla titulo={listo ? 'No se encontró' : 'Cargando…'} volver="Volver">
-        <Subtitulo className="mt-2">
-          {listo ? 'Este trabajo ya no existe. Puede que lo hayas borrado.' : 'Trayendo los datos de la nube.'}
-        </Subtitulo>
+      <Pantalla titulo="Cargando…" volver>
+        <p className="text-base text-texto-suave">Trayendo los datos de la nube.</p>
       </Pantalla>
     )
   }
-  return trabajo.tipo === 'medicion' ? <PantallaViaje trabajo={trabajo} /> : <PantallaEstacion trabajo={trabajo} />
-}
 
-// ——— Empezar una estación ———
+  if (!trabajo) {
+    return (
+      <Pantalla titulo="No se encontró" volver>
+        <p className="text-lg">Este trabajo ya no existe. Puede que lo hayas borrado.</p>
+      </Pantalla>
+    )
+  }
 
-export function PantallaNuevaEstacion() {
-  const { valores, crearTrabajo } = useDatos()
-  const [nombre, setNombre] = useState('')
-  const [ids, setIds] = useState(() => valores.empleados.map((e) => e.id))
-  const [falta, setFalta] = useState(false)
+  const tipo = TIPOS[trabajo.tipo]
+  const conEmpleados = trabajo.tipo !== 'medicion'
+  const resultado = calcularTrabajo(trabajo, trabajos)
+  const cambiar = (cambios: Partial<Trabajo>) => guardarTrabajo({ ...trabajo, ...cambios })
 
-  const seguir = () => {
-    if (!nombre.trim()) {
-      setFalta(true)
-      return
-    }
-    const id = crearTrabajo('estacion', { nombre: nombre.trim(), empleadoIds: ids })
-    // Al volver del primer día queda en la estación, no en esta pantalla.
-    reemplazar(`/trabajo/${id}`)
-    ir(`/trabajo/${id}/nuevo-dia/${hoy()}`)
+  // Lo cargado con la pantalla de cada día guarda si fue en el día mismo, sin la casilla del trabajo.
+  const fuiYo = trabajo.trabajeYo || trabajo.tramos.some((t) => t.yo === 'todo' || t.yo === 'parte')
+  // Al marcarla, los días sin contestar quedan en "todo el día" (como siempre); al desmarcarla, ningún día cuenta.
+  const marcarFuiYo = (marcada: boolean) =>
+    cambiar({
+      trabajeYo: marcada,
+      tramos: trabajo.tramos.map(({ yo, ...tramo }) => (marcada && yo ? { ...tramo, yo } : tramo)),
+    })
+
+  const cambiarTramo = (tramoId: string, cambios: Partial<Tramo>) =>
+    cambiar({ tramos: trabajo.tramos.map((t) => (t.id === tramoId ? { ...t, ...cambios } : t)) })
+
+  const agregarDia = () => {
+    // El día nuevo arranca al día siguiente del último, con el horario vacío para cargarlo de cero.
+    const ultimo = resultado.dias.at(-1)?.tramo
+    const vacio = { id: nuevoId(), desde: '', hasta: '', feriado: false, ...(fuiYo ? { yo: 'todo' as const } : {}) }
+    const nuevo: Tramo = { ...vacio, fecha: ultimo ? sumarDias(ultimo.fecha, 1) : hoy() }
+    cambiar({ tramos: [...trabajo.tramos, nuevo] })
+  }
+
+  const alternarEmpleado = (empleadoId: string) =>
+    cambiar({
+      empleadoIds: trabajo.empleadoIds.includes(empleadoId)
+        ? trabajo.empleadoIds.filter((i) => i !== empleadoId)
+        : [...trabajo.empleadoIds, empleadoId],
+    })
+
+  const otrosTrabajosDelDia = (tramo: Tramo) =>
+    conEmpleados
+      ? trabajos
+          .filter(
+            (t) =>
+              t.id !== trabajo.id &&
+              t.tipo !== 'medicion' &&
+              t.empleadoIds.some((i) => trabajo.empleadoIds.includes(i)) &&
+              t.tramos.some((x) => x.fecha === tramo.fecha),
+          )
+          .map(nombreDelTrabajo)
+      : []
+
+  const borrar = () => {
+    const aviso = `¿Borrar “${nombreDelTrabajo(trabajo)}”? Si te equivocás, lo recuperás en Valores y precios → Trabajos borrados.`
+    if (!confirm(aviso)) return
+    borrarTrabajo(trabajo.id)
+    ir('/')
+  }
+
+  const actualizarValores = () => {
+    if (!confirm('¿Usar los valores y precios de hoy en este trabajo?')) return
+    cambiar({ valores: structuredClone(valores) })
   }
 
   return (
-    <Pantalla
-      volver="Hoy"
-      titulo="Estación nueva"
-      barra={
-        <Boton icono={ArrowRight} onClick={seguir}>
-          Seguir: cargar el primer día
-        </Boton>
-      }
-    >
-      <CampoTexto
-        etiqueta="¿Cómo se llama?"
-        valor={nombre}
-        ejemplo={TIPOS.estacion.ejemplo}
-        enfocar
-        alCambiar={(texto) => {
-          setNombre(texto)
-          setFalta(false)
-        }}
-      />
-      {falta && <Aviso tipo="atencion">Escribí cómo se llama la estación.</Aviso>}
-      <Titulo>¿Quiénes fueron?</Titulo>
-      <QuienesFueron empleados={valores.empleados} ids={ids} alCambiar={setIds} />
-      <Subtitulo className="mt-2">Tocá para sacar o poner a alguien.</Subtitulo>
+    <Pantalla titulo={trabajo.nombre.trim() || tipo.nuevo} etiqueta={{ icono: tipo.icono, texto: tipo.nombre }} volver>
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start lg:gap-6">
+        <div className="flex flex-col gap-4">
+          <Tarjeta>
+            <CampoTexto
+              etiqueta={tipo.campoNombre}
+              valor={trabajo.nombre}
+              alCambiar={(nombre) => cambiar({ nombre })}
+              ejemplo={tipo.ejemplo}
+            />
+            {conEmpleados && (
+              <fieldset className="flex flex-col gap-2">
+                <legend className="mb-1 text-base font-semibold">¿Quiénes fueron?</legend>
+                <div className="flex flex-wrap gap-2">
+                  {trabajo.valores.empleados.map((empleado) => {
+                    const fue = trabajo.empleadoIds.includes(empleado.id)
+                    const Icono = fue ? Check : Circle
+                    return (
+                      <button
+                        key={empleado.id}
+                        type="button"
+                        aria-pressed={fue}
+                        onClick={() => alternarEmpleado(empleado.id)}
+                        className={`flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border-2 px-4 text-base font-semibold transition-colors duration-150 ${
+                          fue ? 'border-primario bg-primario text-white' : 'border-campo bg-superficie text-texto-suave'
+                        }`}
+                      >
+                        <Icono className="size-5 shrink-0" aria-hidden />
+                        {empleado.nombre || 'Sin nombre'}
+                      </button>
+                    )
+                  })}
+                </div>
+                {trabajo.tipo === 'estacion' && (
+                  <Casilla chica marcada={fuiYo} alCambiar={marcarFuiYo}>
+                    Fui yo también <span className="text-texto-suave">(en cada día marcás si estuviste todo el día o un rato)</span>
+                  </Casilla>
+                )}
+              </fieldset>
+            )}
+          </Tarjeta>
+
+          <Tarjeta
+            titulo="Días y horarios"
+            icono={CalendarDays}
+            derecha={<span className="text-sm text-texto-suave">{trabajo.tramos.length} días</span>}
+          >
+            {trabajo.tipo === 'fabrica' && (
+              <Aviso>Si trabajan menos de 9 horas en fábrica, se cobra igual el día completo.</Aviso>
+            )}
+            {resultado.dias.map((dia) => (
+              <FilaDia
+                key={dia.tramo.id}
+                dia={dia}
+                conExtras={resultado.empleados.length > 0}
+                presencia={trabajo.tipo === 'estacion' && fuiYo ? presenciaMia(trabajo, dia.tramo) : null}
+                otrosTrabajos={otrosTrabajosDelDia(dia.tramo)}
+                alCambiar={(cambios) => cambiarTramo(dia.tramo.id, cambios)}
+                alQuitar={() => cambiar({ tramos: trabajo.tramos.filter((t) => t.id !== dia.tramo.id) })}
+              />
+            ))}
+            {new Set(trabajo.tramos.map((t) => inicioDeSemana(t.fecha))).size > 1 && (
+              <Aviso tipo="atencion">
+                Hay días de dos semanas distintas. Conviene cargar un trabajo por semana, así el resumen de cada semana da
+                bien.
+              </Aviso>
+            )}
+            <Boton variante="secundario" icono={Plus} onClick={agregarDia}>
+              Agregar día
+            </Boton>
+          </Tarjeta>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <Resultado trabajo={trabajo} resultado={resultado} cambiar={cambiar} />
+
+          <details className="rounded-2xl border border-borde bg-superficie px-4 py-3 text-base">
+            <summary className="min-h-7 cursor-pointer font-semibold">Valores usados</summary>
+            <div className="mt-2 flex flex-col gap-1">
+              {conEmpleados &&
+                trabajo.valores.empleados.map((e) => (
+                  <Fila key={e.id} etiqueta={`Día de ${e.nombre}`} valor={plata(e.diaConveniencia)} />
+                ))}
+              <Fila etiqueta="Tu hora" valor={plata(trabajo.valores.horaMia)} />
+              {trabajo.tipo === 'estacion' && <Fila etiqueta="Plus" valor={plata(trabajo.valores.plus)} />}
+              <BotonTexto icono={RefreshCw} onClick={actualizarValores}>
+                Usar los valores de hoy
+              </BotonTexto>
+            </div>
+          </details>
+
+          <Boton icono={Check} onClick={volver}>
+            Listo
+          </Boton>
+          <div className="-mt-2 flex justify-center">
+            <EstadoGuardado />
+          </div>
+          <div className="flex justify-center">
+            <BotonTexto icono={Trash2} peligro onClick={borrar}>
+              Borrar este trabajo
+            </BotonTexto>
+          </div>
+        </div>
+      </div>
     </Pantalla>
   )
 }

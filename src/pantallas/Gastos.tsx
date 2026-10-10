@@ -1,113 +1,73 @@
-import { Check, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { CalendarRange, Check, Plus, Receipt, Trash2, type LucideIcon } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 import { inicioDeSemana, resumirSemana, semanaDe } from '../calculos.ts'
 import { estaVacio, useDatos } from '../datos.tsx'
-import { diaYFecha, fechaCorta, hoy, nombreDia, nuevoId, plata, rangoCorto, sumarDias } from '../formato.ts'
+import { fechaCorta, hoy, nombreDia, nuevoId, plata, rangoDeFechas, sumarDias } from '../formato.ts'
 import { CATEGORIAS, nombreDelGasto } from '../gastos.ts'
 import { ir, volver } from '../navegacion.ts'
-import { useAvisar } from '../toast.tsx'
 import type { CategoriaGasto, Gasto, Trabajo } from '../tipos.ts'
 import { nombreCliente, nombreDelTrabajo } from '../tiposDeTrabajo.ts'
-import {
-  Aviso,
-  Boton,
-  BotonTexto,
-  CambiarFecha,
-  CampoPlata,
-  CampoTexto,
-  Chip,
-  Chips,
-  LineaLibro,
-  Libro,
-  Lista,
-  NotaLibro,
-  Opciones,
-  Pantalla,
-  Renglon,
-  Semanero,
-  Subtitulo,
-  Titulo,
-} from '../ui.tsx'
+import { Aviso, Boton, BotonTexto, CampoPlata, CampoTexto, estiloCampo, FilaEnlace, Pantalla, Tarjeta } from '../ui.tsx'
 import { EstadoGuardado } from './EstadoGuardado.tsx'
-import { flechasDeSemana, nombreDeSemana } from './Semana.tsx'
 
 function AvisoSinGastos() {
   return (
-    <Aviso tipo="atencion">
-      No se pudieron traer los gastos de la nube. Lo que anotes queda guardado en este aparato.
-    </Aviso>
+    <Aviso tipo="atencion">No se pudieron traer los gastos de la nube. Lo que anotes queda guardado en este aparato.</Aviso>
   )
 }
+
+/** Fecha con la que arranca un gasto nuevo: hoy, o el lunes si se está mirando otra semana. */
+export const fechaParaGasto = (inicio: string) => (inicioDeSemana(hoy()) === inicio ? hoy() : inicio)
 
 export function PantallaGastos({ inicio = inicioDeSemana(hoy()) }: { inicio?: string }) {
   const { trabajos, gastos, valores, listo, fallanGastos } = useDatos()
   const semana = resumirSemana(inicio, trabajos, valores.iva, gastos)
   const cliente = nombreCliente(valores)
-  const hoyMismo = hoy()
-  // Si mira otra semana, el gasto nuevo arranca en esa semana.
-  const fechaNueva = inicioDeSemana(hoyMismo) === inicio ? hoyMismo : inicio
 
   return (
     <Pantalla
-      cabecera={
-        <Semanero
-          titulo="Gastos"
-          subtitulo={[nombreDeSemana(inicio), rangoCorto(semana.inicio, semana.fin)].filter(Boolean).join(' · ')}
-          {...flechasDeSemana(inicio, '/gastos')}
-        />
-      }
-      solapa="gastos"
-    >
-      {fallanGastos && <AvisoSinGastos />}
-      <div className="mt-4">
-        <Boton icono={Plus} onClick={() => ir(`/gasto/nuevo/${fechaNueva}`)}>
+      titulo="Gastos en efectivo"
+      etiqueta={{ icono: CalendarRange, texto: `Semana ${rangoDeFechas(semana.inicio, semana.fin)}` }}
+      volver
+      acciones={
+        <Boton icono={Plus} onClick={() => ir(`/gasto/nuevo/${fechaParaGasto(inicio)}`)}>
           Anotar un gasto
         </Boton>
-      </div>
-
-      {!listo ? (
-        <Subtitulo className="mt-6">Cargando…</Subtitulo>
-      ) : semana.gastos.length === 0 ? (
-        <Subtitulo className="mt-6">
-          No anotaste gastos en esta semana. Lo que pongas en efectivo (nafta, comida, materiales…) anotalo acá y se lo
-          cobrás a {cliente} en la planilla.
-        </Subtitulo>
-      ) : (
-        <>
-          <Titulo>
-            {semana.gastos.length} {semana.gastos.length === 1 ? 'gasto' : 'gastos'}
-          </Titulo>
-          <Lista>
-            {[...semana.gastos].reverse().map((g) => (
-              <Renglon
+      }
+    >
+      {fallanGastos && <AvisoSinGastos />}
+      <Tarjeta
+        titulo="Gastos de la semana"
+        icono={Receipt}
+        derecha={<span className="text-lg font-bold tabular-nums">{plata(semana.totalGastos)}</span>}
+      >
+        {!listo ? (
+          <p className="text-base text-texto-suave">Cargando…</p>
+        ) : semana.gastos.length === 0 ? (
+          <p className="text-base text-texto-suave">Esta semana no anotaste gastos.</p>
+        ) : (
+          <div className="-mx-4 border-y border-borde">
+            {semana.gastos.map((g) => (
+              <FilaEnlace
                 key={g.id}
                 icono={CATEGORIAS[g.categoria]?.icono}
                 titulo={nombreDelGasto(g)}
-                detalle={[
-                  `${nombreDia(g.fecha)} ${fechaCorta(g.fecha)}`,
-                  g.lugar,
-                  g.categoria !== 'otro' && g.nota.trim(),
-                ]
+                detalle={[`${nombreDia(g.fecha)} ${fechaCorta(g.fecha)}`, g.lugar, g.categoria !== 'otro' && g.nota.trim()]
                   .filter(Boolean)
                   .join(' · ')}
                 valor={plata(g.monto)}
                 onClick={() => ir(`/gasto/${g.id}`)}
               />
             ))}
-          </Lista>
-          <div className="mt-3">
-            <Libro>
-              <LineaLibro etiqueta={<b>Total de la semana</b>} monto={plata(semana.totalGastos)} />
-              <NotaLibro>Se lo cobrás a {cliente} en la planilla de esta semana, sin IVA.</NotaLibro>
-            </Libro>
           </div>
-        </>
-      )}
+        )}
+        <p className="text-sm text-texto-suave">Se los cobrás a {cliente} en la planilla de esta semana, sin IVA.</p>
+      </Tarjeta>
     </Pantalla>
   )
 }
 
-/** Estaciones y fábricas para elegir de cuál fue el gasto: las de esa semana. */
+/** Estaciones y fábricas de la semana del gasto, para elegir de cuál fue. */
 function lugaresDeLaSemana(trabajos: Trabajo[], fecha: string): Trabajo[] {
   const semana = inicioDeSemana(fecha)
   return trabajos
@@ -116,11 +76,30 @@ function lugaresDeLaSemana(trabajos: Trabajo[], fecha: string): Trabajo[] {
     .sort((a, b) => nombreDelTrabajo(a).localeCompare(nombreDelTrabajo(b)))
 }
 
-function cuando(fecha: string) {
-  const hoyMismo = hoy()
-  if (fecha === hoyMismo) return `Hoy, ${diaYFecha(fecha)}`
-  if (fecha === sumarDias(hoyMismo, -1)) return `Ayer, ${diaYFecha(fecha)}`
-  return `${nombreDia(fecha)} ${fechaCorta(fecha)}`
+function Pastilla({
+  activa,
+  icono: Icono,
+  onClick,
+  children,
+}: {
+  activa: boolean
+  icono?: LucideIcon
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={activa}
+      onClick={onClick}
+      className={`flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border-2 px-4 text-base font-semibold transition-colors duration-150 ${
+        activa ? 'border-primario bg-primario text-white' : 'border-campo bg-superficie text-texto'
+      }`}
+    >
+      {Icono && <Icono className="size-5 shrink-0" aria-hidden />}
+      {children}
+    </button>
+  )
 }
 
 /** Anotar o corregir un gasto. Se guarda solo apenas tiene el monto. */
@@ -129,8 +108,8 @@ export function PantallaGasto({ id, fecha }: { id?: string; fecha?: string }) {
   const existente = id ? gastos.find((g) => g.id === id) : undefined
   if (id && !existente) {
     return (
-      <Pantalla titulo={listo ? 'Este gasto ya no está' : 'Cargando…'} volver="Gastos">
-        <Subtitulo className="mt-2">{listo ? 'Puede que lo hayas quitado.' : 'Trayendo los datos de la nube.'}</Subtitulo>
+      <Pantalla titulo={listo ? 'Este gasto ya no está' : 'Cargando…'} volver>
+        <p className="text-base text-texto-suave">{listo ? 'Puede que lo hayas quitado.' : 'Trayendo los datos de la nube.'}</p>
       </Pantalla>
     )
   }
@@ -139,7 +118,6 @@ export function PantallaGasto({ id, fecha }: { id?: string; fecha?: string }) {
 
 function FormularioGasto({ existente, fecha }: { existente?: Gasto; fecha?: string }) {
   const { trabajos, gastos, fallanGastos, guardarGasto, borrarGasto } = useDatos()
-  const avisar = useAvisar()
   // Mientras no elige en qué fue, queda sin categoría (se guarda como "Otro" por las dudas).
   const [borrador, setBorrador] = useState<Omit<Gasto, 'categoria'> & { categoria: CategoriaGasto | null }>(
     () =>
@@ -168,91 +146,92 @@ function FormularioGasto({ existente, fecha }: { existente?: Gasto; fecha?: stri
   const lugares = lugaresDeLaSemana(trabajos, borrador.fecha)
   const elegido = trabajos.find((t) => t.id === borrador.trabajoId)
   if (elegido && !lugares.includes(elegido)) lugares.unshift(elegido)
+  const semana = inicioDeSemana(borrador.fecha)
 
   const listoGasto = () => {
     if (borrador.monto > 0 && !borrador.categoria) {
       setFaltaCategoria(true)
       return
     }
-    if (borrador.monto > 0 && borrador.categoria) {
-      const nombre = nombreDelGasto({ ...borrador, categoria: borrador.categoria })
-      avisar({ texto: `${existente ? 'Gasto corregido' : 'Gasto anotado'}: ${nombre} ${plata(borrador.monto)}` })
-    }
     volver()
   }
 
   const quitar = () => {
-    const quitado = borrarGasto(borrador.id)
+    if (!confirm(`¿Quitar el gasto de ${plata(borrador.monto)}?`)) return
+    borrarGasto(borrador.id)
     volver()
-    if (quitado) avisar({ texto: `Se quitó el gasto de ${plata(quitado.monto)}`, deshacer: () => guardarGasto(quitado) })
   }
 
+  const elegirLugar = (trabajo: Trabajo | null) =>
+    cambiar({ trabajoId: trabajo?.id ?? null, lugar: trabajo ? nombreDelTrabajo(trabajo) : '' })
+
   return (
-    <Pantalla
-      volver="Gastos"
-      titulo={existente ? 'Corregir el gasto' : 'Anotar un gasto'}
-      barra={
-        <>
-          <Boton icono={Check} onClick={listoGasto}>
-            Listo
-          </Boton>
-          <EstadoGuardado enBarra />
-        </>
-      }
-    >
+    <Pantalla titulo={existente ? 'Corregir el gasto' : 'Anotar un gasto'} etiqueta={{ icono: Receipt, texto: 'Gasto en efectivo' }} volver>
       {fallanGastos && <AvisoSinGastos />}
-      <CampoPlata etiqueta="¿Cuánto gastaste?" valor={borrador.monto} enfocar={!existente} alCambiar={(monto) => cambiar({ monto })} />
+      <Tarjeta>
+        <CampoPlata etiqueta="¿Cuánto gastaste?" valor={borrador.monto} alCambiar={(monto) => cambiar({ monto })} />
 
-      <Titulo>¿En qué?</Titulo>
-      {faltaCategoria && <Aviso tipo="atencion">Elegí en qué fue el gasto.</Aviso>}
-      <div className={faltaCategoria ? 'mt-3' : ''}>
-        <Chips>
-          {(Object.keys(CATEGORIAS) as CategoriaGasto[]).map((clave) => (
-            <Chip
-              key={clave}
-              activo={borrador.categoria === clave}
-              icono={CATEGORIAS[clave].icono}
-              onClick={() => cambiar({ categoria: clave })}
-            >
-              {CATEGORIAS[clave].nombre}
-            </Chip>
-          ))}
-        </Chips>
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-base font-semibold">¿En qué?</legend>
+          {faltaCategoria && <Aviso tipo="atencion">Elegí en qué fue el gasto.</Aviso>}
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(CATEGORIAS) as CategoriaGasto[]).map((clave) => (
+              <Pastilla
+                key={clave}
+                activa={borrador.categoria === clave}
+                icono={CATEGORIAS[clave].icono}
+                onClick={() => cambiar({ categoria: clave })}
+              >
+                {CATEGORIAS[clave].nombre}
+              </Pastilla>
+            ))}
+          </div>
+        </fieldset>
+
+        <CampoTexto
+          etiqueta={borrador.categoria === 'otro' ? '¿Qué fue?' : 'Nota (si querés)'}
+          valor={borrador.nota}
+          ejemplo={borrador.categoria === 'otro' ? 'Ej: estacionamiento' : 'Ej: tornillos para el mueble'}
+          alCambiar={(nota) => cambiar({ nota })}
+        />
+
+        <label className="flex flex-col gap-1">
+          <span className="text-base font-semibold">¿Cuándo?</span>
+          <input
+            type="date"
+            className={estiloCampo}
+            value={borrador.fecha}
+            onChange={(e) => e.target.value && cambiar({ fecha: e.target.value })}
+          />
+          <span className="text-sm text-texto-suave">Va en la semana {rangoDeFechas(semana, sumarDias(semana, 6))}.</span>
+        </label>
+
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-base font-semibold">
+            ¿De qué estación? <span className="font-normal text-texto-suave">(si querés)</span>
+          </legend>
+          <div className="flex flex-wrap gap-2">
+            {lugares.map((t) => (
+              <Pastilla key={t.id} activa={borrador.trabajoId === t.id} onClick={() => elegirLugar(t)}>
+                {nombreDelTrabajo(t)}
+              </Pastilla>
+            ))}
+            <Pastilla activa={!borrador.trabajoId} onClick={() => elegirLugar(null)}>
+              Ninguna en particular
+            </Pastilla>
+          </div>
+        </fieldset>
+      </Tarjeta>
+
+      <Boton icono={Check} onClick={listoGasto}>
+        Listo
+      </Boton>
+      <div className="-mt-2 flex justify-center">
+        <EstadoGuardado />
       </div>
-      <CampoTexto
-        etiqueta={borrador.categoria === 'otro' ? '¿Qué fue?' : 'Nota (si querés)'}
-        valor={borrador.nota}
-        ejemplo={borrador.categoria === 'otro' ? 'Ej: estacionamiento' : 'Ej: tornillos para el mueble'}
-        alCambiar={(nota) => cambiar({ nota })}
-      />
-
-      <Titulo>¿Cuándo?</Titulo>
-      <div className="flex min-h-14 items-center justify-between gap-2.5 rounded-[14px] border border-borde bg-superficie pr-2 pl-3.5 font-bold">
-        <span>{cuando(borrador.fecha)}</span>
-        <CambiarFecha fecha={borrador.fecha} texto="Cambiar" chico={false} alCambiar={(f) => cambiar({ fecha: f })} />
-      </div>
-      <Subtitulo className="mt-1.5">
-        Va en la semana del {rangoCorto(inicioDeSemana(borrador.fecha), sumarDias(inicioDeSemana(borrador.fecha), 6))}.
-      </Subtitulo>
-
-      <Titulo>¿De qué estación?</Titulo>
-      <Subtitulo className="-mt-1.5 mb-2">Si querés. Si no, queda en la semana.</Subtitulo>
-      <Opciones
-        etiqueta="¿De qué estación?"
-        valor={borrador.trabajoId ?? 'ninguna'}
-        alCambiar={(clave) => {
-          const trabajo = trabajos.find((t) => t.id === clave)
-          cambiar({ trabajoId: trabajo?.id ?? null, lugar: trabajo ? nombreDelTrabajo(trabajo) : '' })
-        }}
-        opciones={[
-          ...lugares.map((t) => ({ clave: t.id, texto: nombreDelTrabajo(t) })),
-          { clave: 'ninguna', texto: 'Ninguna en particular' },
-        ]}
-      />
-
       {existente && (
-        <div className="mt-6">
-          <BotonTexto icono={Trash2} tono="peligro" onClick={quitar}>
+        <div className="flex justify-center">
+          <BotonTexto icono={Trash2} peligro onClick={quitar}>
             Quitar este gasto
           </BotonTexto>
         </div>
