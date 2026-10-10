@@ -3,7 +3,7 @@
 // - Pagos y cuentas (uso interno): lo que se le paga a cada empleado, con todas las cuentas para controlar.
 import { jsPDF } from 'jspdf'
 import { autoTable, type RowInput, type UserOptions } from 'jspdf-autotable'
-import type { DiaCalculado, PagoEmpleado, Reparto, ResultadoTrabajo, ResumenSemana, TipoDia } from './calculos.ts'
+import { empleadosDelTramo, type DiaCalculado, type PagoEmpleado, type Reparto, type ResultadoTrabajo, type ResumenSemana, type TipoDia } from './calculos.ts'
 import { fechaCorta, horas, nombreDia, plata, plataExacta, rangoDeFechas } from './formato.ts'
 import type { Trabajo, Tramo } from './tipos.ts'
 import { nombreDelGasto } from './gastos.ts'
@@ -136,13 +136,23 @@ class Documento {
 /** Si el día de ese horario fue de semana, sábado, domingo o feriado. */
 const tipoDelDia = (tramo: Tramo, dias: DiaCalculado[]): TipoDia => dias.find((d) => d.tramo.id === tramo.id)?.tipo ?? 'semana'
 
-function filasDeHoras(dias: DiaCalculado[], conExtras: boolean): RowInput[] {
-  return dias.map((dia) => {
+/** Quiénes estuvieron en ese horario: sus empleados, la gente de afuera y él si fue. */
+function personalDelHorario(trabajo: Trabajo, dia: DiaCalculado, titular: string): string {
+  const ids = empleadosDelTramo(trabajo, dia.tramo)
+  const nombres = trabajo.valores.empleados.filter((e) => ids.includes(e.id)).map((e) => e.nombre)
+  const deAfuera = (dia.tramo.externos ?? []).map((x) => x.nombre)
+  return [...nombres, ...deAfuera, ...(dia.minutosMios > 0 ? [titular] : [])].join(', ')
+}
+
+/** Un renglón por horario. Con `personal`, una columna con quiénes estuvieron en cada uno. */
+function filasDeHoras(dias: DiaCalculado[], conExtras: boolean, personal?: string[]): RowInput[] {
+  return dias.map((dia, i) => {
     const { tramo } = dia
     const fila = [
       nombreDia(tramo.fecha) + (dia.tipo === 'feriado' ? ' (feriado)' : ''),
       fechaCorta(tramo.fecha),
       tramo.cancelado ? 'Viaje cancelado' : `${tramo.desde || '--:--'} a ${tramo.hasta || '--:--'}`,
+      ...(personal ? [personal[i]] : []),
       horas(dia.minutos) + (dia.relleno > 0 ? ` (se cobra ${horas(dia.minutos + dia.relleno)})` : ''),
     ]
     return conExtras ? [...fila, textoExtras(dia.tipo, dia.reparto)] : fila
@@ -176,7 +186,9 @@ export function crearPlanillaCliente(semana: ResumenSemana, { titular, cliente }
   d.encabezado('Liquidación semanal', semana, titular, `Para: ${cliente}`)
 
   for (const { trabajo, resultado } of semana.cobros) {
-    d.lugarPara(45)
+    // Cada trabajo entero en la misma hoja, si entra: título, horarios y detalle (unos 8 mm por renglón).
+    const importes = importesDelTrabajo(trabajo, resultado, titular)
+    d.lugarPara(Math.min(20 + (resultado.dias.length + importes.length + 4) * 8, d.alto - 2 * MARGEN))
     d.titulo(nombreDelTrabajo(trabajo), TIPOS[trabajo.tipo].nombre)
     const personal = resultado.empleados.map((l) => l.nombre)
     if (resultado.dias.some((dia) => dia.minutosMios > 0)) personal.push(titular)
@@ -190,17 +202,23 @@ export function crearPlanillaCliente(semana: ResumenSemana, { titular, cliente }
       d.y += 3
     }
     const conExtras = resultado.empleados.length > 0
-    const total = [{ content: 'Total', colSpan: 3 }, horas(resultado.totalMinutos)]
+    // Si no fue siempre la misma gente, cada horario dice quiénes estuvieron.
+    const personalPorHorario = resultado.dias.map((dia) => personalDelHorario(trabajo, dia, titular))
+    const conPersonal = new Set(personalPorHorario).size > 1
+    const desdeHoras = conPersonal ? 4 : 3
+    const total = [{ content: 'Total', colSpan: desdeHoras }, horas(resultado.totalMinutos)]
     d.tabla({
-      head: [conExtras ? ['Día', 'Fecha', 'Horario', 'Horas', 'Extras'] : ['Día', 'Fecha', 'Horario', 'Horas']],
-      body: filasDeHoras(resultado.dias, conExtras),
+      head: [['Día', 'Fecha', 'Horario', ...(conPersonal ? ['Personal'] : []), 'Horas', ...(conExtras ? ['Extras'] : [])]],
+      body: filasDeHoras(resultado.dias, conExtras, conPersonal ? personalPorHorario : undefined),
       foot: [conExtras ? [...total, horas(resultado.reparto.al50 + resultado.reparto.al100)] : total],
-      ...numerosDesde(3),
+      ...numerosDesde(desdeHoras),
     })
     d.y += 3
     d.tabla({
+      // Es chica: si no entra entera, pasa toda a la hoja siguiente (que no quede el título solo).
+      pageBreak: 'avoid',
       head: [['Detalle', 'Importe']],
-      body: importesDelTrabajo(trabajo, resultado, titular),
+      body: importes,
       foot: [[`Total ${nombreDelTrabajo(trabajo)}`, pesos(resultado.total)]],
       columnStyles: { 1: { cellWidth: 35 } },
       headStyles: { ...estiloTabla.headStyles, fillColor: SUAVE },
