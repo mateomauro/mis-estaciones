@@ -84,6 +84,8 @@ export type Trabajo = {
   trabajeYo: boolean
   /** Terminada: suma el plus. */
   conPlus: boolean
+  /** Con el plus, se cobra la mitad (por ejemplo, si hicieron solo una parte de la estación). */
+  medioPlus?: boolean
   /** Ya terminaron ahí (con o sin plus): deja de aparecer en "¿Dónde estuvieron hoy?". */
   cerrada?: boolean
   tramos: Tramo[]

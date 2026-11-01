@@ -533,3 +533,16 @@ test('Sus horas no se cuentan dos veces si anotó dos horarios que se pisan', ()
   assert.equal(r.miParte.tipo, 'horas')
   if (r.miParte.tipo === 'horas') assert.equal(r.miParte.horas, 10)
 })
+
+test('Medio plus: suma la mitad justa del plus; sin el dato nuevo, el plus va entero como antes', () => {
+  const tramos = [tramo('2026-09-14', '08:00', '17:00')]
+  const completo = calcularTrabajo(trabajo({ conPlus: true, tramos }), [])
+  const viejo = calcularTrabajo(trabajo({ conPlus: true, medioPlus: false, tramos }), [])
+  const medio = calcularTrabajo(trabajo({ conPlus: true, medioPlus: true, tramos }), [])
+  const sinPlus = calcularTrabajo(trabajo({ conPlus: false, medioPlus: true, tramos }), [])
+  assert.equal(completo.plus, 541703)
+  assert.equal(viejo.plus, 541703)
+  assert.equal(medio.plus, Math.round(541703 / 2))
+  assert.equal(sinPlus.plus, 0)
+  assert.equal(medio.total, completo.total - completo.plus + medio.plus)
+})

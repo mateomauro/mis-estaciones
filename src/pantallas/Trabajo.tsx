@@ -422,13 +422,23 @@ function Resultado({
       )}
 
       {trabajo.tipo === 'estacion' && (
-        <div className="flex flex-wrap items-center justify-between gap-x-3 border-t border-borde pt-2">
-          <Casilla chica marcada={trabajo.conPlus} alCambiar={(conPlus) => cambiar({ conPlus })}>
-            Estación terminada: plus
-          </Casilla>
-          <span className={`text-base tabular-nums ${trabajo.conPlus ? '' : 'text-texto-suave line-through'}`}>
-            {plata(trabajo.valores.plus)}
-          </span>
+        <div className="flex flex-col gap-2 border-t border-borde pt-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-base font-semibold">Plus por estación</span>
+            <span className={`text-base tabular-nums ${resultado.plus > 0 ? 'font-semibold' : 'text-texto-suave'}`}>
+              {plata(resultado.plus)}
+            </span>
+          </div>
+          <Opciones
+            etiqueta="Plus por estación"
+            valor={!trabajo.conPlus ? 'no' : trabajo.medioPlus ? 'medio' : 'completo'}
+            opciones={[
+              ['no', 'Sin plus'],
+              ['medio', 'Medio plus'],
+              ['completo', 'Plus completo'],
+            ]}
+            alCambiar={(plus) => cambiar({ conPlus: plus !== 'no', medioPlus: plus === 'medio' })}
+          />
         </div>
       )}
 

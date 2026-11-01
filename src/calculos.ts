@@ -387,7 +387,8 @@ export function calcularTrabajo(trabajo: Trabajo, todos: Trabajo[], regla: Regla
     }
   }
 
-  const plus = trabajo.tipo === 'estacion' && trabajo.conPlus ? Math.round(trabajo.valores.plus) : 0
+  const plus =
+    trabajo.tipo === 'estacion' && trabajo.conPlus ? Math.round(trabajo.valores.plus * (trabajo.medioPlus ? 0.5 : 1)) : 0
   const descuentos = trabajo.descuentos.reduce((suma, d) => suma + (d.monto || 0), 0)
 
   // La gente de CR: sus horas con la regla de CR, sumando los horarios de esa persona ese día en este trabajo.

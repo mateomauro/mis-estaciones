@@ -174,7 +174,9 @@ function importesDelTrabajo(trabajo: Trabajo, resultado: ResultadoTrabajo, titul
   if (miParte.tipo === 'horas') {
     filas.push([`${trabajo.tipo === 'medicion' ? 'Viaje a medir' : 'Horas'} ${titular}`, pesos(miParte.monto)])
   }
-  if (resultado.plus > 0) filas.push(['Plus por estación terminada', pesos(resultado.plus)])
+  if (resultado.plus > 0) {
+    filas.push([trabajo.medioPlus ? 'Medio plus por estación' : 'Plus por estación terminada', pesos(resultado.plus)])
+  }
   for (const d of trabajo.descuentos.filter((d) => d.monto)) {
     filas.push([`Descuento${d.detalle.trim() ? `: ${d.detalle.trim()}` : ''}`, `- ${pesos(d.monto)}`])
   }
